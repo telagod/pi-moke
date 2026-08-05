@@ -14,6 +14,7 @@
 | 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
 | 📦 **精选扩展** | 15 个：pi-lens（代码体检）、pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-thinking-ui、pi-safe-compact… |
 | 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
+| ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
 | 🔒 **零密钥** | 不打包任何 API key / auth.json / 自定义 provider。模型由使用者自配 |
 | 🔁 **幂等可逆** | 重跑即升级；旧 AGENTS.md 自动备份，一键还原 |
 
@@ -31,7 +32,9 @@ git clone https://github.com/telagod/pi-moke && cd pi-moke && ./install.sh
 curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | bash
 ```
 
-脚本自动完成：装 pi（如缺）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
+脚本自动完成：装 pi（如缺）→ **启动优化**（有 bun 则用 bun 启动 + 内存参数，无 bun 用 node，验证失败自动回退）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
+
+> 已有 pi 且想换 bun 启动：`./install.sh --bun`（换完立即自检，失败自动回退 node）。
 
 ### 安装后三步
 

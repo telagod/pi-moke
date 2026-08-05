@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # 墨客（MoKe）启动器 —— 一键开箱：人格 + skills + 扩展包 + 界面设置
-# 用法: ./install.sh   (或 curl -fsSL <url> | bash)
+# 用法: ./install.sh [--bun]   (或 curl -fsSL <url> | bash)
+#   --bun  强制用 bun 启动 pi(需已装 bun;验证失败自动回退 node)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || echo "$PWD")"
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 TS="$(date +%Y%m%d-%H%M%S)"
 MOKE_REPO="${MOKE_REPO:-https://github.com/telagod/pi-moke}"
+FORCE_BUN=0; [ "${1:-}" = "--bun" ] && FORCE_BUN=1
 
 say()  { printf '\033[1;32m[moke]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[moke]\033[0m %s\n' "$*"; }
@@ -28,11 +30,44 @@ if [ ! -f "$REPO_DIR/AGENTS.md" ]; then
 fi
 
 # ---- 1. 安装 pi(如缺) ----
+NEW_INSTALL=0
 if command -v pi >/dev/null 2>&1; then
   say "pi 已安装: $(pi --version 2>/dev/null || echo '?')"
 else
   say "未找到 pi,正在全局安装 @earendil-works/pi-coding-agent ..."
   npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+  NEW_INSTALL=1
+fi
+
+# ---- 1.5 启动优化:内存参数 + bun 启动(如可用) ----
+#   原理:pi 的 bin 是指向 dist/cli.js 的软链,首行 shebang 即启动方式。
+#   node: --max-old-space-size=512 --max-semi-space-size=32(与作者本机一致)
+#   bun:  --max-old-space-size=512(bun 兼容该 V8 标志)
+#   幂等:已含参数即跳过;换 bun 后验证失败自动回退 node。
+if command -v pi >/dev/null 2>&1; then
+  PI_REAL="$(readlink -f "$(command -v pi)")"
+  if [ -f "$PI_REAL" ] && [ "$(head -c 2 "$PI_REAL")" = "#!" ]; then
+    if [ "$FORCE_BUN" = 1 ] && command -v bun >/dev/null 2>&1; then
+      RUNNER=bun; FLAGS="--max-old-space-size=512"
+    elif [ "$NEW_INSTALL" = 1 ] && command -v bun >/dev/null 2>&1; then
+      RUNNER=bun; FLAGS="--max-old-space-size=512"
+    else
+      RUNNER=node; FLAGS="--max-old-space-size=512 --max-semi-space-size=32"
+    fi
+    SHEBANG="#!/usr/bin/env -S $RUNNER $FLAGS"
+    if [ "$(head -1 "$PI_REAL")" != "$SHEBANG" ]; then
+      say "启用 $RUNNER 启动 + 内存优化: $SHEBANG"
+      sed -i "1c$SHEBANG" "$PI_REAL"
+      if ! pi --version >/dev/null 2>&1; then
+        warn "$RUNNER 启动验证失败,回退 node ..."
+        sed -i "1c#!/usr/bin/env -S node --max-old-space-size=512 --max-semi-space-size=32" "$PI_REAL"
+      fi
+    else
+      say "启动优化已生效($RUNNER,内存参数在位)"
+    fi
+  else
+    warn "无法定位 pi 启动脚本,跳过启动优化"
+  fi
 fi
 
 # ---- 2. 写 AGENTS.md(墨客人格) ----
