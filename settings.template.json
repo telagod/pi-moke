@@ -1,0 +1,26 @@
+{
+  "defaultThinkingLevel": "max",
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 40800,
+    "keepRecentTokens": 20000
+  },
+  "packages": [
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:pi-web-access",
+    "npm:pi-subagents",
+    "npm:@narumitw/pi-goal",
+    "npm:@narumitw/pi-plan-mode",
+    "npm:@juicesharp/rpiv-todo",
+    "npm:pi-lens",
+    "npm:pi-atuin",
+    "npm:@ogulcancelik/pi-ssh-tools",
+    "npm:pi-safe-compact",
+    "npm:@diegopetrucci/pi-notify",
+    "npm:pi-midrun-compact",
+    "npm:pi-hermes-memory",
+    "npm:@siddr/pi-tool-display",
+    "npm:@fyeeme/pi-thinking-ui"
+  ],
+  "theme": "dark"
+}

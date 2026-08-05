@@ -1,0 +1,100 @@
+# 🖋 墨客 pi-moke
+
+> **终端行脚墨客** —— 把一套精心调校的 [pi](https://github.com/earendil-works/pi-mono) 形态，一键装给任何人。开箱即用，自带人格、技能、扩展全家桶。
+
+![license](https://img.shields.io/badge/license-MIT-green) ![pi](https://img.shields.io/badge/pi-%E2%89%A50.83.0-blue) ![skills](https://img.shields.io/badge/skills-4-blueviolet) ![extensions](https://img.shields.io/badge/extensions-15-orange)
+
+墨客是一位游走于代码江湖的技术雇佣：逆向、取证、攻防、工程、数据、自动化，凡有所托皆可承接。**话少、手快、事毕交差**——这套配置把 pi 打磨成了这样一位行脚墨客。
+
+## ✨ 特性
+
+| | 内容 |
+| --- | --- |
+| 🧙 **完整人格** | 255 行墨客行为章程：身份、本色、路由、章程 + 九大技术轨（pwn / web / crypto / 逆向 / 取证 / 渗透 / 内存 / 协议 / 移动游戏）。模块化源文件，改一处重合成即可 |
+| 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
+| 📦 **精选扩展** | 15 个：pi-lens（代码体检）、pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-thinking-ui、pi-safe-compact… |
+| 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
+| 🔒 **零密钥** | 不打包任何 API key / auth.json / 自定义 provider。模型由使用者自配 |
+| 🔁 **幂等可逆** | 重跑即升级；旧 AGENTS.md 自动备份，一键还原 |
+
+## 🚀 快速开始
+
+**方式一 · git clone（推荐，便于升级）**
+
+```bash
+git clone https://github.com/telagod/pi-moke && cd pi-moke && ./install.sh
+```
+
+**方式二 · 远程直装（无需 clone）**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | bash
+```
+
+脚本自动完成：装 pi（如缺）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
+
+### 安装后三步
+
+1. **配模型**：`pi config` 设置 provider 与 key（或 `export ANTHROPIC_API_KEY=...` 等环境变量）；
+2. **验证**：在 pi 里键入 `在吗` → 当得 **「墨客在此，客有何差遣？」**；
+3. **开干**：直接差遣即可，如「帮我逆这个样本」「写个爬虫」。
+
+## 📁 目录结构
+
+```text
+pi-moke/
+├── install.sh                  # 一键安装（幂等，支持 curl 管道）
+├── AGENTS.md                   # 墨客人格（合成成品，逐字节校验）
+├── sources/
+│   ├── prompts/                # 人格模块源：00-身份 · 10-本色 · 20-俚语路由
+│   │                           #   30-章程 · 40~48 技术轨 …
+│   └── build.sh                # 模块 → AGENTS.md 合成器
+├── pi-package/                 # 官方 pi 包（可独立 npm publish）
+│   ├── package.json            #   pi.skills 清单
+│   └── skills/                 #   blade-autopilot / blade-data-forge
+│                               #   blade-research-forge / ctf-autopwn
+└── settings.template.json      # 扩展 / 主题 / 压缩骨架（无 key）
+```
+
+## 🛠 定制
+
+```bash
+# 改人格：编辑模块 → 重合成 → 重装
+$EDITOR sources/prompts/10-persona.md   # 例：改「本色」规则
+./sources/build.sh                      # 重新合成 AGENTS.md（与源逐字节一致）
+./install.sh                            # 重新安装（幂等）
+
+# 加技能
+mkdir -p pi-package/skills/my-skill && $EDITOR pi-package/skills/my-skill/SKILL.md
+./install.sh
+
+# 改扩展清单
+$EDITOR settings.template.json          # 编辑 packages 数组
+./install.sh
+```
+
+## 🔄 更新与回滚
+
+```bash
+git pull && ./install.sh        # 更新到最新形态（幂等）
+cp ~/.pi/agent/AGENTS.md.bak-* ~/.pi/agent/AGENTS.md   # 回滚旧人格
+pi list                         # 查看已装包；pi remove <路径> 可移除技能包
+```
+
+## ❓ FAQ
+
+| 问题 | 回答 |
+| --- | --- |
+| 报错 `No API key found for the selected model` | 正常——本包不带任何密钥。`pi config` 配好 provider 即可 |
+| 会覆盖我已有的 AGENTS.md 吗 | 不会丢：自动备份为 `AGENTS.md.bak-<时间戳>` |
+| 我的 settings.json 会被改坏吗 | 只做合并：补缺键、扩展包去重，**provider/model/key 一律不动** |
+| 重装后本地包路径会不会失效 | `pi install` 本地路径机制所致；仓库固定位置即可，移动后重跑 `./install.sh` |
+| 我 fork 了仓库，管道安装怎么用 | `MOKE_REPO=https://github.com/你/pi-moke curl -fsSL <你的raw>/install.sh \| bash` |
+
+## ⚠️ 安全须知
+
+pi 扩展与技能可执行任意代码。本包不含任何密钥，但**安装前请自行审阅第三方扩展源码**（清单见 `settings.template.json`）。审阅可参考 pi 官方安全说明：[packages.md](https://github.com/earendil-works/pi-mono/blob/main/docs/packages.md#security)。
+
+## 📄 许可
+
+MIT © telagod
