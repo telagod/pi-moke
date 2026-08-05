@@ -110,6 +110,23 @@ if command -v pi >/dev/null 2>&1; then
   fi
 fi
 
+# ---- 1.8 扩展兼容:pi-thinking-ui 需从解析链找到 pi 本体 ----
+#   @fyeeme/pi-thinking-ui 用 import.meta.resolve("@earendil-works/pi-coding-agent")
+#   定位 pi 包根;扩展装在 ~/.pi/agent/npm 下,而 pi 本体在 npm 全局,链不到。
+#   软链进扩展解析链即可(可逆,pi 重装包时若清掉,重跑 install.sh 会重建)。
+fix_thinking_ui() {
+  local agent_npm="$AGENT_DIR/npm/node_modules"
+  [ -d "$agent_npm/@fyeeme/pi-thinking-ui" ] || return 0
+  local target="$(npm root -g 2>/dev/null)/@earendil-works/pi-coding-agent"
+  [ -d "$target" ] || return 0
+  mkdir -p "$agent_npm/@earendil-works"
+  if [ ! -e "$agent_npm/@earendil-works/pi-coding-agent" ]; then
+    ln -s "$target" "$agent_npm/@earendil-works/pi-coding-agent"
+    say "Thinking UI 兼容修复:已链接 pi 本体到扩展解析链"
+  fi
+}
+fix_thinking_ui
+
 # ---- 2. 写 AGENTS.md(墨客人格) ----
 mkdir -p "$AGENT_DIR"
 if [ -f "$AGENT_DIR/AGENTS.md" ]; then
