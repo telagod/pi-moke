@@ -15,6 +15,7 @@
 | 📦 **精选扩展** | 15 个：pi-lens（代码体检）、pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-thinking-ui、pi-safe-compact… |
 | 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
 | ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
+| 🖥 **多平台** | Linux / macOS / WSL2 / Termux 同一条安装路径，依赖由脚本统一安装，无需手工 brew / apt / pkg |
 | 🔒 **零密钥** | 不打包任何 API key / auth.json / 自定义 provider。模型由使用者自配 |
 | 🔁 **幂等可逆** | 重跑即升级；旧 AGENTS.md 自动备份，一键还原 |
 
@@ -32,9 +33,21 @@ git clone https://github.com/telagod/pi-moke && cd pi-moke && ./install.sh
 curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | bash
 ```
 
-脚本自动完成：装 pi（如缺）→ **启动优化**（有 bun 则用 bun 启动 + 内存参数，无 bun 用 node，验证失败自动回退）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
+脚本自动完成：装依赖（如缺）→ 装 pi（如缺）→ **启动优化**（有 bun 则用 bun 启动 + 内存参数，无 bun 用 node，验证失败自动回退）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
 
 > 已有 pi 且想换 bun 启动：`./install.sh --bun`（换完立即自检，失败自动回退 node）。
+
+## 🖥 平台支持
+
+| 平台 | 支持 | 说明 |
+| --- | --- | --- |
+| Linux | ✅ 全自动 | 唯一要求：`curl`；node 缺失或低于 22 时脚本自动安装 |
+| macOS | ✅ 全自动 | 同上，无需 brew；`sed`/`readlink` 差异已在脚本内兼容 |
+| WSL2 | ✅ 全自动 | 与 Linux 一致，Windows 下推荐路径 |
+| Termux (Android) | ✅ 全自动 | `pkg install curl git` 后直接跑 |
+| Windows 原生 | ⚠️ 半自动 | 需 bash 环境（pi 官方要求）；建议直接用 WSL2，Git Bash 亦可但个别环节需手动 |
+
+**统一依赖安装**：node ≥ 22 由脚本内置的 [mise](https://mise.run)（`curl -fsSL https://mise.run | sh`）安装，Linux / macOS / WSL2 / Termux 同一条路，无需记忆各平台包管理器命令。装完**重开终端**以生效 mise 的 shell 钩子。
 
 ### 安装后三步
 
@@ -93,6 +106,9 @@ pi list                         # 查看已装包；pi remove <路径> 可移除
 | 我的 settings.json 会被改坏吗 | 只做合并：补缺键、扩展包去重，**provider/model/key 一律不动** |
 | 重装后本地包路径会不会失效 | `pi install` 本地路径机制所致；仓库固定位置即可，移动后重跑 `./install.sh` |
 | 我 fork 了仓库，管道安装怎么用 | `MOKE_REPO=https://github.com/你/pi-moke curl -fsSL <你的raw>/install.sh \| bash` |
+| 系统已有 node 但很旧 | 脚本检测版本（需 ≥22），不足则自动装 node@lts，不会拿旧 node 硬跑 |
+| Windows 上装不了 | pi 官方要求 bash 环境；装 [WSL2](https://learn.microsoft.com/windows/wsl) 后与 Linux 体验一致 |
+| Termux 上怎么装 | `pkg install curl git && pkg install nodejs`（或直接跑脚本，会自动走 mise） |
 
 ## ⚠️ 安全须知
 
