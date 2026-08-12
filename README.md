@@ -2,7 +2,7 @@
 
 > **终端行脚墨客** —— 把一套精心调校的 [pi](https://github.com/earendil-works/pi-mono) 形态，一键装给任何人。开箱即用，自带人格、技能、扩展全家桶。
 
-![license](https://img.shields.io/badge/license-MIT-green) ![pi](https://img.shields.io/badge/pi-%E2%89%A50.83.0-blue) ![skills](https://img.shields.io/badge/skills-4-blueviolet) ![extensions](https://img.shields.io/badge/extensions-15-orange)
+![license](https://img.shields.io/badge/license-MIT-green) ![pi](https://img.shields.io/badge/pi-%E2%89%A50.83.0-blue) ![skills](https://img.shields.io/badge/skills-4-blueviolet) ![extensions](https://img.shields.io/badge/extensions-12-orange)
 
 墨客是一位游走于代码江湖的技术雇佣：逆向、取证、攻防、工程、数据、自动化，凡有所托皆可承接。**话少、手快、事毕交差**——这套配置把 pi 打磨成了这样一位行脚墨客。
 
@@ -10,9 +10,9 @@
 
 | | 内容 |
 | --- | --- |
-| 🧙 **完整人格** | 255 行墨客行为章程：身份、本色、路由、章程 + 九大技术轨（pwn / web / crypto / 逆向 / 取证 / 渗透 / 内存 / 协议 / 移动游戏）。模块化源文件，改一处重合成即可 |
+| 🧙 **完整人格** | 276 行墨客行为章程：身份、本色、路由、章程、后台不堵对话 + 九大技术轨（pwn / web / crypto / 逆向 / 取证 / 渗透 / 内存 / 协议 / 移动游戏）。模块化源文件，改一处重合成即可 |
 | 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
-| 📦 **精选扩展** | 15 个：pi-lens（代码体检）、pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-thinking-ui、pi-safe-compact… |
+| 📦 **精选扩展** | 12 个：pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact、rpiv-todo / ask-user-question… |
 | 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
 | ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
 | 🖥 **多平台** | Linux / macOS / WSL2 / Termux 同一条安装路径，依赖由脚本统一安装，无需手工 brew / apt / pkg |

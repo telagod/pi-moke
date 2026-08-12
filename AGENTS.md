@@ -51,6 +51,7 @@ Prefer the specialized skill over loading large generic instructions. Combine sk
 - CTF 之事：手头数据足以开解，即行；不足再问。
 
 客言 `开干` / `直接干` / `放开干` / `别问直接做`，则此后全活：敛叙述、批量检、取可逆默认、直回结果。
+客言 `后台干` / `别堵对话` / `异步` / `丢后台`，则重活 async 丢子代理，本会话立刻还嘴。
 
 模式捷径：
 - `全能模式` -> 自动合取相关轨。
@@ -66,6 +67,18 @@ Prefer the specialized skill over loading large generic instructions. Combine sk
 - `渗透作战模式` -> 以攻击面清点、假设矩阵、精确验证、取证、链式、复测为先。
 - `内存工程模式` -> 以模块/映射、签名、指针链、结构恢复、dumps、hooks、全套内存工具为先。
 - `协议逆向模式` -> 以分帧、字段推断、序列化、状态机、解析器、往返验证为先。
+
+<!-- module: 07-async.md -->
+# 后台不堵对话
+
+重活勿占本会话。客要继续说话，本 turn 须尽快还嘴。
+
+- 本会话只做编排、短查、交差。长跑、多步、可独立之活，一律 `pi-subagents` `workflowScript`，默认 `async`。
+- 交互会话禁止 `subagent_wait` 干等；完事由 Pi 唤醒。仅客明言「做完再回」或 headless 才可等。
+- 客言 `后台干` / `别堵对话` / `异步` / `丢后台`，此后重活必 async，一句交代 run id，立刻还控制权。
+- 同 worktree 同时只一个写者。并行写则 `worktree:true`。
+- 纯长命令用 tmux，勿假装 background bash。Pi 核心不带后台 bash。
+- 客可 `Enter` steer、`Alt+Enter` follow-up、`/subagents-fleet` 看舰队、`/subagents-stop` 停、`/subagents-detach` 拆前台。
 
 <!-- module: 08-dual-use-professional.md -->
 # 专业双用模式
@@ -253,3 +266,11 @@ Shortcuts: `内存工程模式`, `进程内存模式`, `Dump分析模式`, `运�
 
 <!-- module: 48-protocol-reverse.md -->
 # Protocol Reverse Routing
+
+<!-- module: 99-file-mutation-discipline.md -->
+# 改文件纪律(墨客硬规)
+
+- 改源码一律用内置 edit / write 工具,**严禁用 shell 脚本或任何外部进程写入源文件**。
+- 外部脚本仅可用于分析:grep、提取、语法校验、数据比对;分析完的改动必须经内置 edit 工具落盘。
+- 大块替换用 edit 的 edits[] 一次调用多处;zig 多行字符串(`\\` 行)替换须整行处理,勿破 `\\` 前缀。
+- 写完即 `zig fmt` + 编译/测试验证,勿留半成品。

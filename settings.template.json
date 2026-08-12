@@ -12,15 +12,12 @@
     "npm:@narumitw/pi-goal",
     "npm:@narumitw/pi-plan-mode",
     "npm:@juicesharp/rpiv-todo",
-    "npm:pi-lens",
     "npm:pi-atuin",
     "npm:@ogulcancelik/pi-ssh-tools",
     "npm:pi-safe-compact",
     "npm:@diegopetrucci/pi-notify",
-    "npm:pi-midrun-compact",
     "npm:pi-hermes-memory",
-    "npm:@siddr/pi-tool-display",
-    "npm:@fyeeme/pi-thinking-ui"
+    "npm:@siddr/pi-tool-display"
   ],
   "theme": "dark"
 }
