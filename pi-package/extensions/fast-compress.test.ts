@@ -6,12 +6,19 @@ import {
 	applySnap,
 	dropImages,
 	encodePngGray,
+	estimateMessages,
 	estTokensUtf8,
+	formatStatus,
 	glyph5x7,
 	isPlaceholder,
 	MIN_SNAP_TOKENS,
+	modelHasVision,
+	snapExcerpt,
+	textOf,
 	type AnyMsg,
 } from "./fast-compress.ts";
+
+const textJoin = textOf;
 
 function toolPair(id: string, name: string, args: Record<string, unknown>, body: string): AnyMsg[] {
 	return [
@@ -107,6 +114,72 @@ test("5x7 font covers printable ASCII and A is not a box", () => {
 	assert.notDeepEqual(glyph5x7(65), box); // A
 	assert.notDeepEqual(glyph5x7(122), box); // z
 	assert.deepEqual(glyph5x7(32), [0, 0, 0, 0, 0, 0, 0]);
+});
+
+test("snap keeps a text excerpt so the original is not evaporated", () => {
+	const line = "fn snap_excerpt_marker() void { return; }\n";
+	const ascii = line.repeat(600);
+	assert.ok(estTokensUtf8(ascii) >= MIN_SNAP_TOKENS);
+	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
+	const r = applySnap(msgs);
+	assert.equal(r.snapped, 1);
+	assert.ok(textJoin(msgs[1]).includes("snap_excerpt_marker"));
+});
+
+test("snap skips when the model has no vision", () => {
+	const ascii = "fn main() void { return; }\n".repeat(600);
+	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
+	const r = applySnap(msgs, { vision: false });
+	assert.equal(r.snapped, 0);
+	assert.equal(textJoin(msgs[1]), ascii);
+});
+
+test("snap prefers cheap tail so prefix cache stays warm", () => {
+	const ascii = "fn main() void { return; }\n".repeat(600);
+	const msgs: AnyMsg[] = [];
+	for (let i = 0; i < 6; i++) msgs.push(...toolPair(`old${i}`, "bash", {}, ascii));
+	msgs.push(...toolPair("tail", "bash", {}, ascii));
+	const r = applySnap(msgs);
+	assert.ok(r.snapped >= 1);
+	const old = msgs.find((m) => m.toolCallId === "old0");
+	assert.ok(old && !textJoin(old).startsWith("[Snapcompact"));
+	const tail = msgs.find((m) => m.toolCallId === "tail");
+	assert.ok(tail && textJoin(tail).startsWith("[Snapcompact"));
+});
+
+test("shake elides large XML blocks", () => {
+	const inner = "x".repeat(6 * 1024);
+	const xml = `<log>\n${inner}\n</log>`;
+	const msgs: AnyMsg[] = [{ role: "assistant", content: [{ type: "text", text: xml }] }];
+	const r = applyShake(msgs, { protectTokens: 0, minSavings: 0 });
+	assert.ok(r.shaken >= 1);
+	assert.ok(textJoin(msgs[0]).includes("[Shake elided xml"));
+});
+
+test("modelHasVision gates known families", () => {
+	assert.equal(modelHasVision("claude-sonnet-4"), true);
+	assert.equal(modelHasVision("gpt-4o-mini"), true);
+	assert.equal(modelHasVision("qwen2.5-vl-72b"), true);
+	assert.equal(modelHasVision("deepseek-reasoner"), false);
+	assert.equal(modelHasVision("deepseek-chat"), false);
+	assert.equal(modelHasVision("o1-mini"), false);
+});
+
+test("formatStatus reports usage next-layer and vision", () => {
+	const msgs: AnyMsg[] = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
+	const s = formatStatus(msgs, 1000, false);
+	assert.ok(s.includes("vision=no"));
+	assert.ok(s.includes("next="));
+	assert.ok(estimateMessages(msgs) > 0);
+});
+
+test("snapExcerpt keeps head and tail", () => {
+	const lines = Array.from({ length: 40 }, (_, i) => `L${i}`);
+	const ex = snapExcerpt(lines.join("\n"));
+	assert.ok(ex.includes("L0"));
+	assert.ok(ex.includes("L39"));
+	assert.ok(ex.includes("elided"));
+	assert.ok(!ex.includes("L20"));
 });
 
 test("placeholder detector", () => {

@@ -14,6 +14,8 @@ export const SNAP_AUTO_PERCENT = 80;
 export const MIN_PRUNE_TOKENS = 50;
 export const MIN_SNAP_TOKENS = 3000;
 export const FENCE_MIN_TOKENS = 400;
+export const SNAP_HEAD_LINES = 16;
+export const SNAP_TAIL_LINES = 8;
 const PLACEHOLDER = 16;
 const SNAP_ASCII_RATIO = 0.8;
 const SNAP_SAVINGS = 0.85;
@@ -69,6 +71,60 @@ export function addReport(a: Report, b: Report): Report {
 
 export function formatReport(r: Report): string {
 	return `墨客快压: supersede ${r.superseded} prune ${r.pruned} shake ${r.shaken} snap ${r.snapped} (−${r.tokensSaved} tok)`;
+}
+
+const VISION_MARKERS = [
+	"vision",
+	"-vl",
+	"gpt-4o",
+	"gpt-4.1",
+	"gpt-5",
+	"claude",
+	"gemini",
+	"grok",
+	"pixtral",
+	"glm-4v",
+	"qwen-vl",
+	"qwen2-vl",
+	"qwen2.5-vl",
+];
+
+export function modelHasVision(model: string): boolean {
+	const id = model.toLowerCase();
+	return VISION_MARKERS.some((m) => id.includes(m));
+}
+
+export function snapExcerpt(text: string): string {
+	const lines = text.split("\n");
+	if (lines.length <= SNAP_HEAD_LINES + SNAP_TAIL_LINES) return text;
+	const head = lines.slice(0, SNAP_HEAD_LINES).join("\n");
+	const tail = lines.slice(-SNAP_TAIL_LINES).join("\n");
+	const skipped = lines.length - SNAP_HEAD_LINES - SNAP_TAIL_LINES;
+	return `${head}\n… (${skipped} lines elided; see image) …\n${tail}`;
+}
+
+export function formatStatus(messages: AnyMsg[], window: number, vision: boolean): string {
+	const used = estimateMessages(messages);
+	const pct = window > 0 ? Math.floor((used * 100) / window) : 0;
+	let next = "idle";
+	if (window > 0 && used > (window * 85) / 100) next = "rescue-shake";
+	else if (window > 0 && used > (window * SNAP_AUTO_PERCENT) / 100) next = vision ? "snap" : "shake";
+	else if (window > 0 && used > (window * SHAKE_AUTO_PERCENT) / 100) next = "shake";
+	else next = "prune";
+	let nSup = 0,
+		nTrunc = 0,
+		nShake = 0,
+		nSnap = 0,
+		nImg = 0;
+	for (const m of messages) {
+		const t = textOf(m);
+		if (t.startsWith("[Superseded")) nSup += 1;
+		else if (t.startsWith("[Output truncated")) nTrunc += 1;
+		else if (t.startsWith("[Shake elided")) nShake += 1;
+		else if (t.startsWith("[Snapcompact")) nSnap += 1;
+		if (Array.isArray(m.content) && (m.content as Array<{ type?: string }>).some((b) => b?.type === "image")) nImg += 1;
+	}
+	return `快压 ${used}/${window} (${pct}%) next=${next} vision=${vision ? "yes" : "no"} superseded=${nSup} prune=${nTrunc} shake=${nShake} snap=${nSnap} images=${nImg}`;
 }
 
 export function isPlaceholder(s: string): boolean {
@@ -218,8 +274,62 @@ export function dropImages(messages: AnyMsg[]): number {
 	return n;
 }
 
+function isTagChar(c: string): boolean {
+	return /[A-Za-z0-9_.:-]/.test(c);
+}
+
+function findCloseTag(text: string, from: number, tag: string): number | undefined {
+	for (let i = from; i + 3 + tag.length <= text.length; i++) {
+		if (text[i] !== "<" || text[i + 1] !== "/") continue;
+		if (!text.startsWith(tag, i + 2)) continue;
+		const after = i + 2 + tag.length;
+		if (after < text.length && isTagChar(text[after])) continue;
+		const gt = text.indexOf(">", after);
+		if (gt < 0) return undefined;
+		return gt + 1;
+	}
+	return undefined;
+}
+
+function collectXml(text: string, ranges: Array<{ start: number; end: number; kind: string }>): void {
+	let i = 0;
+	while (i < text.length) {
+		if (text[i] !== "<") {
+			i += 1;
+			continue;
+		}
+		const nxt = text[i + 1];
+		if (!nxt || nxt === "/" || nxt === "!" || nxt === "?" || nxt === " ") {
+			i += 1;
+			continue;
+		}
+		let tagEnd = i + 1;
+		while (tagEnd < text.length && isTagChar(text[tagEnd])) tagEnd += 1;
+		if (tagEnd === i + 1) {
+			i += 1;
+			continue;
+		}
+		const tag = text.slice(i + 1, tagEnd);
+		let gt = tagEnd;
+		while (gt < text.length && text[gt] !== ">") gt += 1;
+		if (gt >= text.length) break;
+		if (gt > tagEnd && text[gt - 1] === "/") {
+			i = gt + 1;
+			continue;
+		}
+		const close = findCloseTag(text, gt + 1, tag);
+		if (close === undefined) {
+			i += 1;
+			continue;
+		}
+		const tok = estTokensUtf8(text.slice(i, close));
+		if (tok >= FENCE_MIN_TOKENS) ranges.push({ start: i, end: close, kind: "xml" });
+		i = close;
+	}
+}
+
 function elideFences(text: string): string | undefined {
-	const ranges: Array<{ start: number; end: number }> = [];
+	const ranges: Array<{ start: number; end: number; kind: string }> = [];
 	let inFence = false;
 	let fenceStart = 0;
 	let lineStart = 0;
@@ -235,18 +345,27 @@ function elideFences(text: string): string | undefined {
 			} else {
 				inFence = false;
 				const tok = estTokensUtf8(text.slice(fenceStart, i));
-				if (tok >= FENCE_MIN_TOKENS) ranges.push({ start: fenceStart, end: i });
+				if (tok >= FENCE_MIN_TOKENS) ranges.push({ start: fenceStart, end: i, kind: "fence" });
 			}
 		}
 		lineStart = i + 1;
 	}
-	if (ranges.length === 0) return undefined;
+	collectXml(text, ranges);
+	ranges.sort((a, b) => a.start - b.start);
+	const kept: typeof ranges = [];
+	let lastEnd = -1;
+	for (const rg of ranges) {
+		if (rg.start < lastEnd) continue;
+		kept.push(rg);
+		lastEnd = rg.end;
+	}
+	if (kept.length === 0) return undefined;
 	let out = "";
 	let cursor = 0;
-	for (const rg of ranges) {
+	for (const rg of kept) {
 		out += text.slice(cursor, rg.start);
 		const tok = estTokensUtf8(text.slice(rg.start, rg.end));
-		out += `[Shake elided fence - ${tok} tokens]`;
+		out += rg.kind === "xml" ? `[Shake elided xml - ${tok} tokens]` : `[Shake elided fence - ${tok} tokens]`;
 		cursor = rg.end;
 	}
 	out += text.slice(cursor);
@@ -518,26 +637,44 @@ function estImageTokens(w: number, h: number): number {
 	return 85 + 170 * Math.ceil(Math.max(w, 1) / 512) * Math.ceil(Math.max(h, 1) / 512);
 }
 
-export function applySnap(messages: AnyMsg[]): Report {
+function snapEligible(messages: AnyMsg[], j: number): boolean {
+	const m = messages[j];
+	if (m.role !== "toolResult") return false;
+	const body = textOf(m);
+	if (isPlaceholder(body) || !m.toolCallId) return false;
+	const ref = findTool(messages, String(m.toolCallId));
+	if (!ref || isSkill(ref)) return false;
+	const tok = estTokensUtf8(body);
+	if (tok < MIN_SNAP_TOKENS) return false;
+	if (asciiRatio(body) < SNAP_ASCII_RATIO) return false;
+	return true;
+}
+
+export function applySnap(messages: AnyMsg[], opts?: { vision?: boolean }): Report {
 	const r = emptyReport();
+	if (opts?.vision === false) return r;
+	const suffix = suffixTokens(messages);
+	const cheap: number[] = [];
+	const deep: number[] = [];
+	for (let j = 0; j < messages.length; j++) {
+		if (!snapEligible(messages, j)) continue;
+		deep.push(j);
+		if (suffix[j] <= CACHE_WARM_SUFFIX) cheap.push(j);
+	}
+	const victims = cheap.length > 0 ? cheap : deep;
 	let frames = 0;
-	for (const m of messages) {
+	for (const j of victims) {
 		if (frames >= SNAP_MAX_FRAMES) break;
-		if (m.role !== "toolResult") continue;
+		const m = messages[j];
 		const body = textOf(m);
-		if (isPlaceholder(body) || !m.toolCallId) continue;
-		const ref = findTool(messages, String(m.toolCallId));
-		if (!ref || isSkill(ref)) continue;
 		const tok = estTokensUtf8(body);
-		if (tok < MIN_SNAP_TOKENS) continue;
-		if (asciiRatio(body) < SNAP_ASCII_RATIO) continue;
 		const framed = renderGray(body);
 		if (!framed) continue;
 		const imgTok = estImageTokens(framed.w, framed.h);
 		if (imgTok > tok * SNAP_SAVINGS) continue;
 		const png = encodePngGray(framed.pixels, framed.w, framed.h);
 		m.content = [
-			{ type: "text", text: `[Snapcompact: ${tok} tokens → ${framed.w}x${framed.h} PNG ~${imgTok} tokens]` },
+			{ type: "text", text: `[Snapcompact: ${tok} tokens → ${framed.w}x${framed.h} PNG ~${imgTok} tokens]\n${snapExcerpt(body)}` },
 			{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
 		];
 		r.snapped += 1;
@@ -553,7 +690,7 @@ export function estimateMessages(messages: AnyMsg[]): number {
 	return n;
 }
 
-export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode): Report {
+export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode, vision = true): Report {
 	let r = emptyReport();
 	if (mode === "drop-images") {
 		r.imagesDropped = dropImages(messages);
@@ -571,7 +708,7 @@ export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode)
 		);
 	}
 	const snapNow = mode === "snap" || (window > 0 && estimateMessages(messages) > (window * SNAP_AUTO_PERCENT) / 100);
-	if (snapNow) r = addReport(r, applySnap(messages));
+	if (snapNow) r = addReport(r, applySnap(messages, { vision }));
 	if (window > 0 && estimateMessages(messages) > (window * 85) / 100) {
 		r = addReport(r, applyShake(messages, { protectTokens: 0, minSavings: 0 }));
 	}
@@ -593,14 +730,17 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	const windowOf = (ctx: { getContextUsage: () => { contextWindow?: number } | undefined }): number =>
 		ctx.getContextUsage()?.contextWindow ?? 128 * 1024;
 
+	const visionOf = (ctx: { model?: { id?: string } }): boolean => modelHasVision(ctx.model?.id ?? "");
+
 	const preview = (ctx: {
 		sessionManager: { getBranch: () => Array<{ type?: string; message?: AnyMsg }> };
 		getContextUsage: () => { contextWindow?: number } | undefined;
+		model?: { id?: string };
 	}, mode: ForceMode): { report: Report; used: number; window: number } => {
 		const msgs = structuredClone(messagesFromBranch(ctx.sessionManager.getBranch()));
 		const window = windowOf(ctx);
 		const used = estimateMessages(msgs);
-		return { report: runPipeline(msgs, window, mode), used, window };
+		return { report: runPipeline(msgs, window, mode, visionOf(ctx)), used, window };
 	};
 
 	pi.on("context", (event, ctx) => {
@@ -608,7 +748,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		const mode = force;
 		force = "auto";
 		const used = estimateMessages(event.messages as AnyMsg[]);
-		const r = runPipeline(event.messages as AnyMsg[], window, mode);
+		const r = runPipeline(event.messages as AnyMsg[], window, mode, visionOf(ctx));
 		last = { report: r, window, used, mode };
 		if (ctx.hasUI && (mode !== "auto" || r.tokensSaved >= MIN_SAVINGS)) {
 			ctx.ui.notify(formatReport(r), "info");
@@ -643,13 +783,12 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("fast-compress", {
-		description: "墨客快压状态：窗口、上次裁剪、待执行模式",
+		description: "墨客快压状态：窗口、下一层、是否有视觉、上次裁剪",
 		handler: async (_args, ctx) => {
-			const window = windowOf(ctx);
-			const used = estimateMessages(messagesFromBranch(ctx.sessionManager.getBranch()));
-			const pending = force === "auto" ? "auto" : force;
+			const msgs = messagesFromBranch(ctx.sessionManager.getBranch());
+			const status = formatStatus(msgs, windowOf(ctx), visionOf(ctx));
 			const prev = last ? formatReport(last.report) : "尚无裁剪";
-			if (ctx.hasUI) ctx.ui.notify(`快压 ${used}/${window} tok · 待执行 ${pending} · ${prev}`, "info");
+			if (ctx.hasUI) ctx.ui.notify(`${status} · 待执行 ${force} · ${prev}`, "info");
 		},
 	});
 }
