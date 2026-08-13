@@ -1,10 +1,15 @@
 {
   "name": "pi-moke",
   "version": "1.0.0",
-  "description": "墨客（MoKe）—— 终端行脚墨客 pi 形态：人格、路由、skills 开箱即用",
-  "keywords": ["pi-package", "moke", "mo-ke", "ctf", "launcher"],
+  "description": "墨客（MoKe）—— 终端行脚墨客 pi 形态：人格、路由、skills、快压开箱即用",
+  "keywords": ["pi-package", "moke", "mo-ke", "ctf", "launcher", "compact"],
+  "type": "module",
   "license": "MIT",
+  "scripts": {
+    "test": "node --experimental-strip-types --test extensions/fast-compress.test.ts"
+  },
   "pi": {
-    "skills": ["./skills"]
+    "skills": ["./skills"],
+    "extensions": ["./extensions/fast-compress.ts"]
   }
 }

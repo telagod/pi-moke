@@ -1,0 +1,530 @@
+/**
+ * 墨客快压 — prune → shake → snap。无 LLM。
+ * 挂 context 钩子：只改发出去的副本，磁盘会话仍是全文。
+ * 比 omp：同 path 再 read 立刻 supersede；廉价尾不够才深裁；snap 不拿汉字赌 OCR。
+ */
+import { deflateSync } from "node:zlib";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export const PROTECT_TOKENS = 16 * 1024;
+export const MIN_SAVINGS = 4 * 1024;
+export const CACHE_WARM_SUFFIX = 8 * 1024;
+export const SHAKE_AUTO_PERCENT = 70;
+export const SNAP_AUTO_PERCENT = 80;
+export const MIN_PRUNE_TOKENS = 50;
+export const MIN_SNAP_TOKENS = 3000;
+export const FENCE_MIN_TOKENS = 400;
+const PLACEHOLDER = 16;
+const SNAP_ASCII_RATIO = 0.8;
+const SNAP_SAVINGS = 0.85;
+const SNAP_MAX_FRAMES = 6;
+const CELL_W = 6;
+const CELL_H = 8;
+const SNAP_COLS = 128;
+const SNAP_MAX_ROWS = 64;
+
+const PREFIXES = [
+	"[Output truncated",
+	"[Superseded",
+	"[Shake elided",
+	"[Snapcompact",
+	"[Uneventful",
+	"[image omitted",
+	"[Artifact stored",
+] as const;
+
+export type ForceMode = "auto" | "shake" | "snap" | "drop-images";
+
+export type AnyMsg = {
+	role: string;
+	toolName?: string;
+	toolCallId?: string;
+	content?: unknown;
+	[k: string]: unknown;
+};
+
+export type Report = {
+	superseded: number;
+	pruned: number;
+	shaken: number;
+	snapped: number;
+	imagesDropped: number;
+	tokensSaved: number;
+};
+
+export function emptyReport(): Report {
+	return { superseded: 0, pruned: 0, shaken: 0, snapped: 0, imagesDropped: 0, tokensSaved: 0 };
+}
+
+export function addReport(a: Report, b: Report): Report {
+	return {
+		superseded: a.superseded + b.superseded,
+		pruned: a.pruned + b.pruned,
+		shaken: a.shaken + b.shaken,
+		snapped: a.snapped + b.snapped,
+		imagesDropped: a.imagesDropped + b.imagesDropped,
+		tokensSaved: a.tokensSaved + b.tokensSaved,
+	};
+}
+
+export function formatReport(r: Report): string {
+	return `墨客快压: supersede ${r.superseded} prune ${r.pruned} shake ${r.shaken} snap ${r.snapped} (−${r.tokensSaved} tok)`;
+}
+
+export function isPlaceholder(s: string): boolean {
+	return PREFIXES.some((p) => s.startsWith(p));
+}
+
+export function estTokensUtf8(text: string): number {
+	let ascii = 0;
+	let two = 0;
+	let wide = 0;
+	for (const ch of text) {
+		const n = ch.length === 1 ? ch.charCodeAt(0) < 0x80 ? 1 : ch.charCodeAt(0) < 0x800 ? 2 : 3 : 4;
+		if (n === 1) ascii += 1;
+		else if (n === 2) two += 1;
+		else wide += 1;
+	}
+	return Math.floor(ascii / 4) + Math.floor((two * 2) / 3) + wide;
+}
+
+export function textOf(m: AnyMsg): string {
+	const c = m.content;
+	if (typeof c === "string") return c;
+	if (!Array.isArray(c)) return "";
+	return c
+		.filter((b: { type?: string; text?: string }) => b?.type === "text" && typeof b.text === "string")
+		.map((b: { text: string }) => b.text)
+		.join("\n");
+}
+
+export function setText(m: AnyMsg, s: string): void {
+	if (typeof m.content === "string") {
+		m.content = s;
+		return;
+	}
+	m.content = [{ type: "text", text: s }];
+}
+
+function findTool(messages: AnyMsg[], callId: string): { name: string; args: Record<string, unknown> } | undefined {
+	for (const m of messages) {
+		if (m.role === "toolResult" && m.toolCallId === callId && typeof m.toolName === "string") {
+			// fall through to assistant lookup for args
+		}
+		if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
+		for (const b of m.content as Array<{ type?: string; id?: string; name?: string; arguments?: Record<string, unknown> }>) {
+			if (b?.type === "toolCall" && b.id === callId) {
+				return { name: String(b.name ?? ""), args: b.arguments ?? {} };
+			}
+		}
+	}
+	return undefined;
+}
+
+function readPath(ref: { name: string; args: Record<string, unknown> }): string | undefined {
+	if (ref.name !== "read") return undefined;
+	const p = ref.args.path;
+	return typeof p === "string" && p.length > 0 ? p : undefined;
+}
+
+function isSkill(ref: { name: string }): boolean {
+	return ref.name === "skill";
+}
+
+function suffixTokens(messages: AnyMsg[]): number[] {
+	const out = new Array<number>(messages.length);
+	let acc = 0;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		out[i] = acc;
+		acc += estTokensUtf8(textOf(messages[i])) + 16;
+	}
+	return out;
+}
+
+export function applyPrune(messages: AnyMsg[]): Report {
+	const r = emptyReport();
+	if (messages.length === 0) return r;
+	const suffix = suffixTokens(messages);
+	const seen = new Set<string>();
+
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.role !== "toolResult") continue;
+		const body = textOf(m);
+		if (isPlaceholder(body) || !m.toolCallId) continue;
+		const ref = findTool(messages, String(m.toolCallId));
+		if (!ref || isSkill(ref)) continue;
+		const path = readPath(ref);
+		if (!path) continue;
+		if (seen.has(path)) {
+			const tok = estTokensUtf8(body);
+			setText(m, `[Superseded by a newer read of ${path}]`);
+			r.superseded += 1;
+			r.tokensSaved += Math.max(0, tok - PLACEHOLDER);
+		} else {
+			seen.add(path);
+		}
+	}
+
+	let protectedTok = 0;
+	let firstProtected = messages.length;
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role !== "toolResult") continue;
+		if (protectedTok >= PROTECT_TOKENS) break;
+		protectedTok += estTokensUtf8(textOf(messages[i]));
+		firstProtected = i;
+	}
+
+	type Victim = { i: number; gain: number };
+	const cheap: Victim[] = [];
+	const deep: Victim[] = [];
+	let cheapSave = 0;
+	let deepSave = 0;
+	for (let j = 0; j < firstProtected; j++) {
+		const m = messages[j];
+		if (m.role !== "toolResult") continue;
+		const body = textOf(m);
+		if (isPlaceholder(body) || !m.toolCallId) continue;
+		const ref = findTool(messages, String(m.toolCallId));
+		if (!ref || isSkill(ref) || readPath(ref)) continue;
+		const tok = estTokensUtf8(body);
+		if (tok < MIN_PRUNE_TOKENS) continue;
+		const gain = Math.max(0, tok - PLACEHOLDER);
+		deep.push({ i: j, gain });
+		deepSave += gain;
+		if (suffix[j] <= CACHE_WARM_SUFFIX) {
+			cheap.push({ i: j, gain });
+			cheapSave += gain;
+		}
+	}
+	const victims = cheapSave >= MIN_SAVINGS ? cheap : deepSave >= MIN_SAVINGS ? deep : [];
+	for (const v of victims) {
+		const tok = estTokensUtf8(textOf(messages[v.i]));
+		setText(messages[v.i], `[Output truncated - ${tok} tokens]`);
+		r.pruned += 1;
+		r.tokensSaved += Math.max(0, tok - PLACEHOLDER);
+	}
+	return r;
+}
+
+export function dropImages(messages: AnyMsg[]): number {
+	let n = 0;
+	for (const m of messages) {
+		if (!Array.isArray(m.content)) continue;
+		const before = (m.content as Array<{ type?: string }>).length;
+		m.content = (m.content as Array<{ type?: string }>).filter((b) => b?.type !== "image");
+		n += before - (m.content as unknown[]).length;
+	}
+	return n;
+}
+
+function elideFences(text: string): string | undefined {
+	const ranges: Array<{ start: number; end: number }> = [];
+	let inFence = false;
+	let fenceStart = 0;
+	let lineStart = 0;
+	for (let i = 0; i <= text.length; i++) {
+		if (i !== text.length && text[i] !== "\n") continue;
+		const line = text.slice(lineStart, i);
+		const trimmed = line.trim();
+		const isFence = trimmed.startsWith("```") || trimmed.startsWith("~~~");
+		if (isFence) {
+			if (!inFence) {
+				inFence = true;
+				fenceStart = lineStart;
+			} else {
+				inFence = false;
+				const tok = estTokensUtf8(text.slice(fenceStart, i));
+				if (tok >= FENCE_MIN_TOKENS) ranges.push({ start: fenceStart, end: i });
+			}
+		}
+		lineStart = i + 1;
+	}
+	if (ranges.length === 0) return undefined;
+	let out = "";
+	let cursor = 0;
+	for (const rg of ranges) {
+		out += text.slice(cursor, rg.start);
+		const tok = estTokensUtf8(text.slice(rg.start, rg.end));
+		out += `[Shake elided fence - ${tok} tokens]`;
+		cursor = rg.end;
+	}
+	out += text.slice(cursor);
+	return out;
+}
+
+export function applyShake(messages: AnyMsg[], opts: { protectTokens: number; minSavings: number }): Report {
+	const r = emptyReport();
+	if (messages.length === 0) return r;
+
+	let accAfter = 0;
+	let limit = 0;
+	if (opts.protectTokens === 0) {
+		limit = messages.length;
+	} else {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (accAfter >= opts.protectTokens) {
+				limit = i + 1;
+				break;
+			}
+			accAfter += estTokensUtf8(textOf(messages[i])) + 16;
+		}
+	}
+
+	const victims: number[] = [];
+	let savings = 0;
+	for (let j = 0; j < limit; j++) {
+		const m = messages[j];
+		if (m.role === "toolResult") {
+			const body = textOf(m);
+			if (isPlaceholder(body) || !m.toolCallId) continue;
+			const ref = findTool(messages, String(m.toolCallId));
+			if (!ref || isSkill(ref)) continue;
+			const tok = estTokensUtf8(body);
+			if (tok < MIN_PRUNE_TOKENS) continue;
+			savings += Math.max(0, tok - PLACEHOLDER);
+			victims.push(j);
+			continue;
+		}
+		if (m.role === "user" || m.role === "assistant") {
+			const body = textOf(m);
+			const stripped = elideFences(body);
+			if (!stripped) continue;
+			const before = estTokensUtf8(body);
+			const after = estTokensUtf8(stripped);
+			if (after + FENCE_MIN_TOKENS < before) {
+				setText(m, stripped);
+				r.shaken += 1;
+				r.tokensSaved += before - after;
+			}
+		}
+	}
+	if (savings < opts.minSavings && r.shaken === 0) return r;
+	if (savings >= opts.minSavings) {
+		for (const j of victims) {
+			const tok = estTokensUtf8(textOf(messages[j]));
+			setText(messages[j], `[Shake elided - ${tok} tokens]`);
+			r.shaken += 1;
+			r.tokensSaved += Math.max(0, tok - PLACEHOLDER);
+		}
+	}
+	return r;
+}
+
+function asciiRatio(s: string): number {
+	if (s.length === 0) return 1;
+	let n = 0;
+	for (let i = 0; i < s.length; i++) if (s.charCodeAt(i) < 0x80) n += 1;
+	return n / s.length;
+}
+
+function crc32(buf: Uint8Array): number {
+	let c = 0xffffffff;
+	for (let i = 0; i < buf.length; i++) {
+		c ^= buf[i];
+		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+	}
+	return (c ^ 0xffffffff) >>> 0;
+}
+
+function u32be(n: number): Uint8Array {
+	return Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
+}
+
+function pngChunk(type: string, data: Uint8Array): Uint8Array {
+	const te = new TextEncoder();
+	const tag = te.encode(type);
+	const body = new Uint8Array(tag.length + data.length);
+	body.set(tag, 0);
+	body.set(data, tag.length);
+	const out = new Uint8Array(8 + data.length + 4);
+	out.set(u32be(data.length), 0);
+	out.set(body, 4);
+	out.set(u32be(crc32(body)), 8 + data.length);
+	return out;
+}
+
+export function encodePngGray(pixels: Uint8Array, w: number, h: number): Buffer {
+	const raw = Buffer.alloc((w + 1) * h);
+	for (let y = 0; y < h; y++) {
+		raw[(w + 1) * y] = 0;
+		raw.set(pixels.subarray(y * w, y * w + w), (w + 1) * y + 1);
+	}
+	const ihdr = Buffer.alloc(13);
+	ihdr.writeUInt32BE(w, 0);
+	ihdr.writeUInt32BE(h, 4);
+	ihdr[8] = 8;
+	ihdr[9] = 0;
+	const sig = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
+	const parts = [
+		Buffer.from(sig),
+		Buffer.from(pngChunk("IHDR", ihdr)),
+		Buffer.from(pngChunk("IDAT", deflateSync(raw))),
+		Buffer.from(pngChunk("IEND", new Uint8Array())),
+	];
+	return Buffer.concat(parts);
+}
+
+function glyph5x7(ch: number): number[] {
+	const table: Record<number, number[]> = {
+		32: [0, 0, 0, 0, 0, 0, 0],
+		33: [0x04, 0x04, 0x04, 0x04, 0, 0x04, 0],
+		45: [0, 0, 0, 0x1f, 0, 0, 0],
+		46: [0, 0, 0, 0, 0, 0x04, 0],
+		47: [0x01, 0x01, 0x02, 0x04, 0x08, 0x10, 0x10],
+		48: [0x0e, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0e],
+		49: [0x04, 0x0c, 0x04, 0x04, 0x04, 0x04, 0x0e],
+		50: [0x0e, 0x11, 0x01, 0x06, 0x08, 0x10, 0x1f],
+		65: [0x0e, 0x11, 0x11, 0x1f, 0x11, 0x11, 0x11],
+		66: [0x1e, 0x11, 0x11, 0x1e, 0x11, 0x11, 0x1e],
+		67: [0x0e, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0e],
+		97: [0, 0, 0x0e, 0x01, 0x0f, 0x11, 0x0f],
+		101: [0, 0, 0x0e, 0x11, 0x1f, 0x10, 0x0e],
+		110: [0, 0, 0x1e, 0x11, 0x11, 0x11, 0x11],
+		116: [0x08, 0x08, 0x1c, 0x08, 0x08, 0x08, 0x06],
+	};
+	return table[ch] ?? [0x1f, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1f];
+}
+
+function renderGray(text: string): { pixels: Uint8Array; w: number; h: number } | undefined {
+	const cols = SNAP_COLS;
+	let rows = 1;
+	let col = 0;
+	for (const ch of text) {
+		if (ch === "\n" || col + 1 >= cols) {
+			rows += 1;
+			col = 0;
+			if (ch === "\n") continue;
+		}
+		col += 1;
+		if (rows > SNAP_MAX_ROWS) break;
+	}
+	if (rows > SNAP_MAX_ROWS) rows = SNAP_MAX_ROWS;
+	const w = cols * CELL_W;
+	const h = rows * CELL_H;
+	const pixels = new Uint8Array(w * h);
+	pixels.fill(255);
+	let row = 0;
+	col = 0;
+	for (const ch of text) {
+		if (row >= rows) break;
+		if (ch === "\n" || col >= cols) {
+			row += 1;
+			col = 0;
+			if (ch === "\n") continue;
+			if (row >= rows) break;
+		}
+		const bits = glyph5x7(ch.codePointAt(0) ?? 63);
+		const ox = col * CELL_W;
+		const oy = row * CELL_H;
+		for (let gy = 0; gy < 7; gy++) {
+			for (let gx = 0; gx < 5; gx++) {
+				if (((bits[gy] >> (4 - gx)) & 1) !== 1) continue;
+				const x = ox + gx;
+				const y = oy + gy;
+				if (x < w && y < h) pixels[y * w + x] = 16;
+			}
+		}
+		col += 1;
+	}
+	return { pixels, w, h };
+}
+
+function estImageTokens(w: number, h: number): number {
+	return 85 + 170 * Math.ceil(Math.max(w, 1) / 512) * Math.ceil(Math.max(h, 1) / 512);
+}
+
+export function applySnap(messages: AnyMsg[]): Report {
+	const r = emptyReport();
+	let frames = 0;
+	for (const m of messages) {
+		if (frames >= SNAP_MAX_FRAMES) break;
+		if (m.role !== "toolResult") continue;
+		const body = textOf(m);
+		if (isPlaceholder(body) || !m.toolCallId) continue;
+		const ref = findTool(messages, String(m.toolCallId));
+		if (!ref || isSkill(ref)) continue;
+		const tok = estTokensUtf8(body);
+		if (tok < MIN_SNAP_TOKENS) continue;
+		if (asciiRatio(body) < SNAP_ASCII_RATIO) continue;
+		const framed = renderGray(body);
+		if (!framed) continue;
+		const imgTok = estImageTokens(framed.w, framed.h);
+		if (imgTok > tok * SNAP_SAVINGS) continue;
+		const png = encodePngGray(framed.pixels, framed.w, framed.h);
+		m.content = [
+			{ type: "text", text: `[Snapcompact: ${tok} tokens → ${framed.w}x${framed.h} PNG ~${imgTok} tokens]` },
+			{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
+		];
+		r.snapped += 1;
+		r.tokensSaved += Math.max(0, tok - imgTok);
+		frames += 1;
+	}
+	return r;
+}
+
+export function estimateMessages(messages: AnyMsg[]): number {
+	let n = 0;
+	for (const m of messages) n += estTokensUtf8(textOf(m)) + 16;
+	return n;
+}
+
+export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode): Report {
+	let r = emptyReport();
+	if (mode === "drop-images") {
+		r.imagesDropped = dropImages(messages);
+		return r;
+	}
+	r = addReport(r, applyPrune(messages));
+	const shakeNow = mode === "shake" || (window > 0 && estimateMessages(messages) > (window * SHAKE_AUTO_PERCENT) / 100);
+	if (shakeNow) {
+		r = addReport(
+			r,
+			applyShake(messages, {
+				protectTokens: mode === "shake" ? 0 : PROTECT_TOKENS,
+				minSavings: mode === "shake" ? 0 : MIN_SAVINGS,
+			}),
+		);
+	}
+	const snapNow = mode === "snap" || (window > 0 && estimateMessages(messages) > (window * SNAP_AUTO_PERCENT) / 100);
+	if (snapNow) r = addReport(r, applySnap(messages));
+	if (window > 0 && estimateMessages(messages) > (window * 85) / 100) {
+		r = addReport(r, applyShake(messages, { protectTokens: 0, minSavings: 0 }));
+	}
+	return r;
+}
+
+export default function mokeFastCompress(pi: ExtensionAPI): void {
+	let force: ForceMode = "auto";
+
+	pi.on("context", (event, ctx) => {
+		const window = ctx.getContextUsage()?.contextWindow ?? 128 * 1024;
+		const mode = force;
+		force = "auto";
+		const r = runPipeline(event.messages as AnyMsg[], window, mode);
+		if (mode !== "auto" && ctx.hasUI) {
+			ctx.ui.notify(formatReport(r), "info");
+		}
+		return { messages: event.messages };
+	});
+
+	pi.registerCommand("shake", {
+		description: "墨客快压：撕掉旧 tool 结果与大 fence（不调模型）。/shake images 只丢图",
+		getArgumentCompletions: (prefix) => {
+			const opts = ["images"];
+			return opts.filter((o) => o.startsWith(prefix)).map((o) => ({ value: o, label: o }));
+		},
+		handler: async (args, ctx) => {
+			force = args.trim() === "images" ? "drop-images" : "shake";
+			if (ctx.hasUI) ctx.ui.notify(force === "drop-images" ? "下轮快压：丢图" : "下轮快压：shake", "info");
+		},
+	});
+
+	pi.registerCommand("snap", {
+		description: "墨客快压：大段 ASCII tool 输出打成密图（不调模型）",
+		handler: async (_args, ctx) => {
+			force = "snap";
+			if (ctx.hasUI) ctx.ui.notify("下轮快压：snap", "info");
+		},
+	});
+}

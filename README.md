@@ -12,7 +12,8 @@
 | --- | --- |
 | 🧙 **完整人格** | 276 行墨客行为章程：身份、本色、路由、章程、后台不堵对话 + 九大技术轨（pwn / web / crypto / 逆向 / 取证 / 渗透 / 内存 / 协议 / 移动游戏）。模块化源文件，改一处重合成即可 |
 | 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
-| 📦 **精选扩展** | 12 个：pi-subagents（多智能体）、pi-hermes-memory（持久记忆）、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact、rpiv-todo / ask-user-question… |
+| 📦 **精选扩展** | 12 个外加墨客自带快压：pi-subagents、pi-hermes-memory、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact、rpiv-todo / ask-user-question… |
+| 🗜 **墨客快压** | prune → shake → snap，无 LLM。同 path 再 read 立刻 supersede；`/shake` 撕旧 tool；`/snap` 打 ASCII 密图。比 omp 狠：不永保全部 read，汉字不赌 OCR |
 | 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
 | ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
 | 🖥 **多平台** | Linux / macOS / WSL2 / Termux 同一条安装路径，依赖由脚本统一安装，无需手工 brew / apt / pkg |
@@ -66,7 +67,8 @@ pi-moke/
 │   │                           #   30-章程 · 40~48 技术轨 …
 │   └── build.sh                # 模块 → AGENTS.md 合成器
 ├── pi-package/                 # 官方 pi 包（可独立 npm publish）
-│   ├── package.json            #   pi.skills 清单
+│   ├── package.json            #   pi.skills + pi.extensions 清单
+│   ├── extensions/             #   墨客快压（prune / shake / snap）
 │   └── skills/                 #   blade-autopilot / blade-data-forge
 │                               #   blade-research-forge / ctf-autopwn
 └── settings.template.json      # 扩展 / 主题 / 压缩骨架（无 key）
