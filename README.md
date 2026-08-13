@@ -10,10 +10,10 @@
 
 | | 内容 |
 | --- | --- |
-| 🧙 **完整人格** | 276 行墨客行为章程：身份、本色、路由、章程、后台不堵对话 + 九大技术轨（pwn / web / crypto / 逆向 / 取证 / 渗透 / 内存 / 协议 / 移动游戏）。模块化源文件，改一处重合成即可 |
+| 🧙 **完整人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。`./install.sh --sync` 四面一次对账 |
 | 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
-| 📦 **精选扩展** | 12 个外加墨客自带快压：pi-subagents、pi-hermes-memory、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact、rpiv-todo / ask-user-question… |
-| 🗜 **墨客快压** | prune → shake → snap，无 LLM。同 path 再 read 立刻 supersede；`/shake` 撕旧 tool；`/snap` 打 ASCII 密图。比 omp 狠：不永保全部 read，汉字不赌 OCR |
+| 📦 **精选扩展** | 12 个 npm 包 + 本家快压：pi-subagents、pi-hermes-memory、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact… |
+| 🗜 **墨客快压** | prune → shake → snap，无 LLM。`/shake` `/snap` `/fast-compress`。同 path 再 read 立刻 supersede；汉字不赌 OCR |
 | 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
 | ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
 | 🖥 **多平台** | Linux / macOS / WSL2 / Termux 同一条安装路径，依赖由脚本统一安装，无需手工 brew / apt / pkg |
@@ -63,8 +63,7 @@ pi-moke/
 ├── install.sh                  # 一键安装（幂等，支持 curl 管道）
 ├── AGENTS.md                   # 墨客人格（合成成品，逐字节校验）
 ├── sources/
-│   ├── prompts/                # 人格模块源：00-身份 · 10-本色 · 20-俚语路由
-│   │                           #   30-章程 · 40~48 技术轨 …
+│   ├── prompts/                # 人格模块源：身份 · 本色 · 快压 · 俚语 · 章程
 │   └── build.sh                # 模块 → AGENTS.md 合成器
 ├── pi-package/                 # 官方 pi 包（可独立 npm publish）
 │   ├── package.json            #   pi.skills + pi.extensions 清单
@@ -77,10 +76,10 @@ pi-moke/
 ## 🛠 定制
 
 ```bash
-# 改人格：编辑模块 → 重合成 → 重装
-$EDITOR sources/prompts/10-persona.md   # 例：改「本色」规则
-./sources/build.sh                      # 重新合成 AGENTS.md（与源逐字节一致）
-./install.sh                            # 重新安装（幂等）
+# 改人格：编辑模块 → 一键同步本地
+$EDITOR sources/prompts/10-persona.md
+./install.sh --sync                     # 合成 + 落盘 ~/.pi/agent + 绝对路径装包
+./install.sh --doctor                   # 验激活句、快压、包路径、seagull 残留
 
 # 加技能
 mkdir -p pi-package/skills/my-skill && $EDITOR pi-package/skills/my-skill/SKILL.md
@@ -94,7 +93,7 @@ $EDITOR settings.template.json          # 编辑 packages 数组
 ## 🔄 更新与回滚
 
 ```bash
-git pull && ./install.sh        # 更新到最新形态（幂等）
+git pull && ./install.sh --sync # 更新人格与本家包（不重装 node）
 cp ~/.pi/agent/AGENTS.md.bak-* ~/.pi/agent/AGENTS.md   # 回滚旧人格
 pi list                         # 查看已装包；pi remove <路径> 可移除技能包
 ```

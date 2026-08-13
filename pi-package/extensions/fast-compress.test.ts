@@ -7,6 +7,7 @@ import {
 	dropImages,
 	encodePngGray,
 	estTokensUtf8,
+	glyph5x7,
 	isPlaceholder,
 	MIN_SNAP_TOKENS,
 	type AnyMsg,
@@ -99,6 +100,13 @@ test("dropImages removes image blocks", () => {
 	];
 	assert.equal(dropImages(msgs), 1);
 	assert.equal((msgs[0].content as unknown[]).length, 1);
+});
+
+test("5x7 font covers printable ASCII and A is not a box", () => {
+	const box = glyph5x7(0x4e2d); // 中
+	assert.notDeepEqual(glyph5x7(65), box); // A
+	assert.notDeepEqual(glyph5x7(122), box); // z
+	assert.deepEqual(glyph5x7(32), [0, 0, 0, 0, 0, 0, 0]);
 });
 
 test("placeholder detector", () => {

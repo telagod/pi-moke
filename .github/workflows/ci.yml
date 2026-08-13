@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: 快压测试
+        run: node --experimental-strip-types --test pi-package/extensions/fast-compress.test.ts
+      - name: 人格须由模块合成
+        run: |
+          bash sources/build.sh
+          git diff --exit-code AGENTS.md
+      - name: 禁 seagull 死路由
+        run: |
+          if grep -qE '\$seagull-(reverse|pentest|memory|lab)' AGENTS.md sources/prompts/*.md; then
+            echo 'dead seagull skill routing' >&2
+            exit 1
+          fi

@@ -8,4 +8,4 @@
 - snap：大段 ASCII tool 输出打成密图。用量过八成自动；客亦可 `/snap`。汉字多则跳过，不赌 OCR。
 - compact：窗口 85% 末手，才调模型。
 
-某自己超窗时，先 `/shake`，再 `/snap`，仍胀才 `/compact`。不空喊「上下文满了」。
+某自己超窗时，先 `/shake`，再 `/snap`，仍胀才 `/compact`。`/fast-compress` 看状态。不空喊「上下文满了」。

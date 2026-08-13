@@ -1,17 +1,96 @@
 #!/usr/bin/env bash
 # 墨客（MoKe）启动器 —— 一键开箱：人格 + skills + 扩展包 + 界面设置
-# 用法: ./install.sh [--bun]   (或 curl -fsSL <url> | bash)
-#   --bun  强制用 bun 启动 pi(需已装 bun;验证失败自动回退 node)
+# 用法: ./install.sh [--bun|--sync|--doctor]   (或 curl -fsSL <url> | bash)
+#   --bun     强制用 bun 启动 pi(需已装 bun;验证失败自动回退 node)
+#   --sync    合成人格、落盘 ~/.pi/agent、绝对路径重装本家包
+#   --doctor  检查人格/快压/包路径/seagull 残留
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null || echo "$PWD")"
 AGENT_DIR="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"
 TS="$(date +%Y%m%d-%H%M%S)"
 MOKE_REPO="${MOKE_REPO:-https://github.com/telagod/pi-moke}"
-FORCE_BUN=0; [ "${1:-}" = "--bun" ] && FORCE_BUN=1
+FORCE_BUN=0
+MODE=install
+for arg in "$@"; do
+  case "$arg" in
+    --bun) FORCE_BUN=1 ;;
+    --sync) MODE=sync ;;
+    --doctor) MODE=doctor ;;
+    -h|--help)
+      printf '用法: ./install.sh [--bun|--sync|--doctor]\n'
+      exit 0
+      ;;
+  esac
+done
 
 say()  { printf '\033[1;32m[moke]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[moke]\033[0m %s\n' "$*"; }
+
+moke_pin_package() {
+  local settings="$AGENT_DIR/settings.json"
+  local pkg="$REPO_DIR/pi-package"
+  [ -d "$pkg" ] || { warn "无 $pkg"; return 1; }
+  command -v pi >/dev/null 2>&1 && pi install "$pkg"
+  # pi install 常写成相对路径,事后钉死绝对路径,换机器才不会断。
+  if [ -f "$settings" ]; then
+    node -e '
+      const fs = require("fs");
+      const p = process.argv[1], pkg = process.argv[2];
+      const d = JSON.parse(fs.readFileSync(p, "utf8"));
+      const pkgs = (d.packages || []).filter((x) => !/pi-moke|pi-package/.test(String(x)));
+      pkgs.push(pkg);
+      d.packages = pkgs;
+      fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+    ' "$settings" "$pkg"
+  fi
+}
+
+moke_sync() {
+  [ -f "$REPO_DIR/sources/build.sh" ] || { warn "非仓库目录: $REPO_DIR"; return 1; }
+  bash "$REPO_DIR/sources/build.sh"
+  mkdir -p "$AGENT_DIR"
+  if [ -f "$AGENT_DIR/AGENTS.md" ]; then
+    cp "$AGENT_DIR/AGENTS.md" "$AGENT_DIR/AGENTS.md.bak-$TS"
+  fi
+  cp "$REPO_DIR/AGENTS.md" "$AGENT_DIR/AGENTS.md"
+  moke_pin_package
+  say "已同步人格与快压包 → $AGENT_DIR"
+}
+
+moke_doctor() {
+  local fail=0
+  ok() { say "ok  $1"; }
+  bad() { warn "FAIL $1"; fail=1; }
+  grep -q "墨客在此，客有何差遣" "$REPO_DIR/AGENTS.md" 2>/dev/null && ok "仓库人格激活句" || bad "仓库人格激活句"
+  grep -q "墨客快压" "$REPO_DIR/AGENTS.md" 2>/dev/null && ok "仓库含快压" || bad "仓库含快压"
+  grep -qE '\$seagull-(reverse|pentest|memory|lab)' "$REPO_DIR/AGENTS.md" 2>/dev/null && bad "仓库仍有 seagull 死路由" || ok "无 seagull 死路由"
+  grep -q "墨客在此，客有何差遣" "$AGENT_DIR/AGENTS.md" 2>/dev/null && ok "本地人格已落盘" || bad "本地人格已落盘"
+  [ -f "$REPO_DIR/pi-package/extensions/fast-compress.ts" ] && ok "快压扩展存在" || bad "快压扩展存在"
+  grep -q "fast-compress.ts" "$REPO_DIR/pi-package/package.json" 2>/dev/null && ok "package.json 声明扩展" || bad "package.json 声明扩展"
+  if [ -f "$AGENT_DIR/settings.json" ]; then
+    if node -e '
+      const fs = require("fs"); const path = require("path");
+      const d = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+      const agent = process.argv[2];
+      const p = (d.packages || []).find((x) => /pi-package|pi-moke/.test(String(x)));
+      if (!p) process.exit(1);
+      process.exit(fs.existsSync(p) || fs.existsSync(path.resolve(agent, p)) ? 0 : 1);
+    ' "$AGENT_DIR/settings.json" "$AGENT_DIR"; then
+      ok "settings 包路径可解析"
+    else
+      bad "settings 包路径可解析"
+    fi
+    grep -q "桌面/pi-moke" "$AGENT_DIR/settings.json" && bad "无失效桌面路径" || ok "无失效桌面路径"
+  else
+    bad "无 $AGENT_DIR/settings.json"
+  fi
+  grep -qE '\$seagull-(reverse|pentest|memory|lab)' "$AGENT_DIR/AGENTS.md" 2>/dev/null && bad "本地人格无 seagull" || ok "本地人格无 seagull"
+  [ "$fail" -eq 0 ] && say "doctor: 全过" || { warn "doctor: 有失败"; return 1; }
+}
+
+if [ "$MODE" = doctor ]; then moke_doctor; exit $?; fi
+if [ "$MODE" = sync ]; then moke_sync; exit $?; fi
 
 # ---- 0. 前置检查与统一依赖安装 ----
 #   Linux / macOS / WSL / Termux 走同一条路:mise(https://mise.run) 装 node@lts。
@@ -157,7 +236,7 @@ NODE
 
 # ---- 4. 安装 pi-moke 包(skills) ----
 say "安装 pi-moke 技能包 ..."
-pi install "$REPO_DIR/pi-package"
+moke_pin_package
 
 # ---- 5. 收尾 ----
 cat <<'EOF'

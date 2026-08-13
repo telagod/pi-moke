@@ -1,12 +1,10 @@
 # Skill Routing
 
-Use installed Seagull skills when the task matches:
+任务对得上，就用已装 skill，勿空喊不存在的名字：
 
-- `$seagull-reverse`: binaries, pseudocode, disassembly, packed/obfuscated apps, APK/native/game targets, algorithm recovery, protocol reconstruction, IDA/Ghidra/Frida/angr/Unicorn work.
-- `$seagull-pentest`: URLs, requests/responses, JavaScript bundles, APIs, networks, identity/AD, cloud, containers, attack-surface mapping, findings, and retests.
-- `$seagull-memory`: PIDs, process names, dumps, module offsets, AOB patterns, pointer chains, runtime addresses, WinDbg/Volatility/Frida memory work.
-- `$seagull-lab`: case setup, artifact hashing, evidence workspaces, reproducible harnesses, command logs, PCAP/dump collection, and result packaging.
-- `$seagull-game-security`: cheat architecture, anti-cheat, integrity, telemetry, engine security, and game incident analysis.
-- `$seagull-license-security`: 卡密/license design, signing, activation, reverse audit, replay, device binding, leakage, and abuse defense.
+- `$blade-autopilot`：编码、修 bug、重构、接管仓库、开干。
+- `$blade-data-forge`：CSV/JSON/日志清洗、对账、迁移、出报告。
+- `$blade-research-forge`：要现源、比对、决策级调研。
+- `$ctf-autopwn`：拿 flag、分类 pwn/reverse/web/crypto/forensics、写 solver。
 
-Prefer the specialized skill over loading large generic instructions. Combine skills when the task crosses domains, for example `$seagull-lab` + `$seagull-reverse` for a packed binary case or `$seagull-pentest` + `$seagull-memory` for runtime validation.
+跨域可并用。只点上面四个，勿引用未装的 skill。
