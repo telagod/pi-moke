@@ -39,7 +39,9 @@ moke_pin_package() {
       const p = process.argv[1], pkg = process.argv[2];
       const d = JSON.parse(fs.readFileSync(p, "utf8"));
       const pkgs = (d.packages || []).filter((x) => !/pi-moke|pi-package/.test(String(x)));
-      pkgs.push(pkg);
+      const i = pkgs.findIndex((x) => String(x).includes("pi-safe-compact"));
+      if (i >= 0) pkgs.splice(i, 0, pkg);
+      else pkgs.push(pkg);
       d.packages = pkgs;
       fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
     ' "$settings" "$pkg"
@@ -67,6 +69,7 @@ moke_doctor() {
   grep -qE '\$seagull-(reverse|pentest|memory|lab)' "$REPO_DIR/AGENTS.md" 2>/dev/null && bad "仓库仍有 seagull 死路由" || ok "无 seagull 死路由"
   grep -q "墨客在此，客有何差遣" "$AGENT_DIR/AGENTS.md" 2>/dev/null && ok "本地人格已落盘" || bad "本地人格已落盘"
   [ -f "$REPO_DIR/pi-package/extensions/fast-compress.ts" ] && ok "快压扩展存在" || bad "快压扩展存在"
+  [ -f "$REPO_DIR/pi-package/extensions/compact-guard.ts" ] && ok "compact-guard 存在" || bad "compact-guard 存在"
   grep -q "fast-compress.ts" "$REPO_DIR/pi-package/package.json" 2>/dev/null && ok "package.json 声明扩展" || bad "package.json 声明扩展"
   if [ -f "$AGENT_DIR/settings.json" ]; then
     if node -e '
@@ -233,6 +236,27 @@ fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2) + '\n');
 console.log('[moke] settings.json 合并完成: packages=' + (merged.packages || []).length +
   ' theme=' + (merged.theme || '-') + ' (provider/model 未改动)');
 NODE
+
+# ---- 3b. hermes 记忆审查:只看近窗、关 thinking,避免 120s×2 超时 ----
+HERMES_CFG="$AGENT_DIR/hermes-memory-config.json"
+HERMES_TPL="$REPO_DIR/hermes-memory-config.template.json"
+if [ -f "$HERMES_TPL" ]; then
+  if [ ! -f "$HERMES_CFG" ]; then
+    cp "$HERMES_TPL" "$HERMES_CFG"
+    say "已写入 $HERMES_CFG"
+  else
+    node - "$HERMES_CFG" "$HERMES_TPL" <<'NODE'
+const fs = require('fs');
+const [cfgPath, tplPath] = process.argv.slice(2);
+const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8'));
+const existing = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+const merged = { ...tpl, ...existing };
+for (const k of Object.keys(tpl)) if (!(k in existing)) merged[k] = tpl[k];
+fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2) + '\n');
+NODE
+    say "已合并 $HERMES_CFG"
+  fi
+fi
 
 # ---- 4. 安装 pi-moke 包(skills) ----
 say "安装 pi-moke 技能包 ..."

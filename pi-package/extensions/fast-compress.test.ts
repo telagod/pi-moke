@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { markMokeCompact, neutralizeForeignCompactHandlers } from "./compact-guard.ts";
 import {
 	applyPrune,
 	applyShake,
@@ -9,11 +10,13 @@ import {
 	estimateMessages,
 	estTokensUtf8,
 	formatStatus,
-	glyph5x7,
 	isPlaceholder,
 	MIN_SNAP_TOKENS,
 	modelHasVision,
 	snapExcerpt,
+	serializeMessages,
+	buildCompactPayload,
+	attachSnapFrames,
 	textOf,
 	type AnyMsg,
 } from "./fast-compress.ts";
@@ -80,18 +83,26 @@ test("shake drops old tool results and large fences, keeps skill", () => {
 	assert.ok(String((msgs[4].content as { text: string }[])[0].text).includes("[Shake elided fence"));
 });
 
-test("snap rasters large ASCII and skips CJK", () => {
+test("snap rasters large ASCII tool output", () => {
 	const ascii = "fn main() void { return; }\n".repeat(600);
 	assert.ok(estTokensUtf8(ascii) >= MIN_SNAP_TOKENS);
-	const zh = "这是一段很长的中文日志用来验证密图不会拿汉字去赌视觉识别。".repeat(80);
-	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii), ...toolPair("b1", "bash", {}, zh)];
+	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
 	const r = applySnap(msgs);
 	assert.equal(r.snapped, 1);
 	const blocks = msgs[1].content as Array<{ type: string; data?: string; text?: string }>;
 	assert.ok(blocks.some((b) => b.type === "image" && typeof b.data === "string" && b.data.length > 0));
 	assert.ok(String((msgs[1].content as { text?: string }[])[0].text).startsWith("[Snapcompact"));
-	const zhBlocks = msgs[3].content as Array<{ type: string }>;
-	assert.ok(!zhBlocks.some((b) => b.type === "image"));
+});
+
+test("snap rasters CJK tool output", () => {
+	const zh = "这是一段很长的中文日志用来验证密图能画汉字。".repeat(150);
+	assert.ok(estTokensUtf8(zh) >= MIN_SNAP_TOKENS);
+	const msgs: AnyMsg[] = [...toolPair("b1", "bash", {}, zh)];
+	const r = applySnap(msgs);
+	assert.equal(r.snapped, 1);
+	const blocks = msgs[1].content as Array<{ type: string; data?: string; text?: string }>;
+	assert.ok(blocks.some((b) => b.type === "image"));
+	assert.ok(textJoin(msgs[1]).includes("中文日志"));
 });
 
 test("encodePngGray writes a valid PNG signature", () => {
@@ -109,11 +120,14 @@ test("dropImages removes image blocks", () => {
 	assert.equal((msgs[0].content as unknown[]).length, 1);
 });
 
-test("5x7 font covers printable ASCII and A is not a box", () => {
-	const box = glyph5x7(0x4e2d); // 中
-	assert.notDeepEqual(glyph5x7(65), box); // A
-	assert.notDeepEqual(glyph5x7(122), box); // z
-	assert.deepEqual(glyph5x7(32), [0, 0, 0, 0, 0, 0, 0]);
+test("8x13 and CJK fonts have ink", async () => {
+	const { lookup8, lookupCjk, resolveShape } = await import("./snapfont.ts");
+	const a = lookup8(65);
+	assert.ok(a && [...a].some((b) => b !== 0));
+	const zhong = lookupCjk(0x4e2d);
+	assert.ok(zhong && [...zhong].some((b) => b !== 0));
+	assert.equal(resolveShape("claude-sonnet-4").name, "11on16");
+	assert.equal(resolveShape("gpt-4o").name, "8on22");
 });
 
 test("snap keeps a text excerpt so the original is not evaporated", () => {
@@ -186,4 +200,53 @@ test("placeholder detector", () => {
 	assert.ok(isPlaceholder("[Output truncated - 12 tokens]"));
 	assert.ok(isPlaceholder("[Snapcompact: 3000 tokens → 768x256 PNG ~400 tokens]"));
 	assert.equal(isPlaceholder("real tool output"), false);
+});
+
+test("serializeMessages prefixes roles", () => {
+	const text = serializeMessages([
+		{ role: "user", content: "hello" },
+		{ role: "assistant", content: "world" },
+	]);
+	assert.ok(text.includes("[user] hello"));
+	assert.ok(text.includes("[assistant] world"));
+});
+
+test("buildCompactPayload rasters and labels snapcompact", () => {
+	const text = "fn main() void { return; }\n".repeat(400);
+	const payload = buildCompactPayload({
+		text,
+		tokensBefore: 9000,
+		fileOps: { read: ["src/a.zig"], written: [], edited: ["src/b.zig"] },
+		vision: true,
+		model: "gpt-4o",
+	});
+	assert.ok(payload.summary.startsWith("[Snapcompact]"));
+	assert.ok(payload.summary.includes("FILES"));
+	assert.ok(payload.summary.includes("src/a.zig"));
+	assert.equal(payload.details.kind, "moke-snap");
+	assert.ok(payload.details.frames.length >= 1);
+	assert.ok(payload.details.frames[0].data.length > 80);
+});
+
+test("attachSnapFrames injects after compactionSummary", () => {
+	const msgs: AnyMsg[] = [
+		{ role: "compactionSummary", summary: "old" },
+		{ role: "user", content: "keep" },
+	];
+	attachSnapFrames(msgs, { kind: "moke-snap", frames: [{ data: "AAAA", w: 8, h: 8 }] });
+	assert.equal(msgs[1].role, "user");
+	assert.ok(textJoin(msgs[1]).includes("Snapcompact frames"));
+	const blocks = msgs[1].content as Array<{ type: string }>;
+	assert.ok(blocks.some((b) => b.type === "image"));
+});
+
+test("compact-guard skips foreign session_before_compact handlers", async () => {
+	const foreign = async () => ({ compaction: { summary: "llm" } });
+	const ours = markMokeCompact(async () => ({ compaction: { summary: "snap" } }));
+	const list: unknown[] = [foreign, ours];
+	neutralizeForeignCompactHandlers(list);
+	assert.notEqual(list[0], foreign);
+	assert.equal(list[1], ours);
+	assert.equal(await (list[0] as () => Promise<undefined>)(), undefined);
+	assert.equal((await (list[1] as () => Promise<{ compaction: { summary: string } }>)()).compaction.summary, "snap");
 });

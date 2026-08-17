@@ -1,0 +1,9 @@
+{
+  "reviewEnabled": true,
+  "reviewTransport": "direct",
+  "reviewRecentMessages": 16,
+  "flushRecentMessages": 16,
+  "llmThinkingOverride": "off",
+  "nudgeInterval": 10,
+  "nudgeToolCalls": 15
+}

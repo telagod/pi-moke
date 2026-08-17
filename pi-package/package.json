@@ -1,6 +1,6 @@
 {
   "name": "pi-moke",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "墨客（MoKe）—— 终端行脚墨客 pi 形态：人格、路由、skills、快压开箱即用",
   "keywords": ["pi-package", "moke", "mo-ke", "ctf", "launcher", "compact"],
   "type": "module",
@@ -10,6 +10,6 @@
   },
   "pi": {
     "skills": ["./skills"],
-    "extensions": ["./extensions/fast-compress.ts"]
+    "extensions": ["./extensions/compact-guard.ts", "./extensions/fast-compress.ts"]
   }
 }

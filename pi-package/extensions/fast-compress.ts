@@ -1,10 +1,12 @@
 /**
  * 墨客快压 — prune → shake → snap。无 LLM。
  * 挂 context 钩子：只改发出去的副本，磁盘会话仍是全文。
- * 比 omp：同 path 再 read 立刻 supersede；廉价尾不够才深裁；snap 不拿汉字赌 OCR。
+ * 比 omp：同 path 再 read 立刻 supersede；廉价尾不够才深裁；snap 8x13+CJK 按家塑形。
  */
 import { deflateSync } from "node:zlib";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { markMokeCompact } from "./compact-guard.ts";
+import * as snapfont from "./snapfont.ts";
 
 export const PROTECT_TOKENS = 16 * 1024;
 export const MIN_SAVINGS = 4 * 1024;
@@ -17,13 +19,8 @@ export const FENCE_MIN_TOKENS = 400;
 export const SNAP_HEAD_LINES = 16;
 export const SNAP_TAIL_LINES = 8;
 const PLACEHOLDER = 16;
-const SNAP_ASCII_RATIO = 0.8;
 const SNAP_SAVINGS = 0.85;
-const SNAP_MAX_FRAMES = 6;
-const CELL_W = 6;
-const CELL_H = 8;
-const SNAP_COLS = 128;
-const SNAP_MAX_ROWS = 64;
+const SNAP_EXCERPT_MAX = 2400;
 
 const PREFIXES = [
 	"[Output truncated",
@@ -94,13 +91,25 @@ export function modelHasVision(model: string): boolean {
 	return VISION_MARKERS.some((m) => id.includes(m));
 }
 
+function clampUtf8(s: string, maxBytes: number): string {
+	const buf = Buffer.from(s, "utf8");
+	if (buf.length <= maxBytes) return s;
+	let end = maxBytes;
+	while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1;
+	return buf.subarray(0, end).toString("utf8");
+}
+
 export function snapExcerpt(text: string): string {
 	const lines = text.split("\n");
-	if (lines.length <= SNAP_HEAD_LINES + SNAP_TAIL_LINES) return text;
-	const head = lines.slice(0, SNAP_HEAD_LINES).join("\n");
-	const tail = lines.slice(-SNAP_TAIL_LINES).join("\n");
-	const skipped = lines.length - SNAP_HEAD_LINES - SNAP_TAIL_LINES;
-	return `${head}\n… (${skipped} lines elided; see image) …\n${tail}`;
+	let body: string;
+	if (lines.length <= SNAP_HEAD_LINES + SNAP_TAIL_LINES) body = text;
+	else {
+		const head = lines.slice(0, SNAP_HEAD_LINES).join("\n");
+		const tail = lines.slice(-SNAP_TAIL_LINES).join("\n");
+		const skipped = lines.length - SNAP_HEAD_LINES - SNAP_TAIL_LINES;
+		body = `${head}\n… (${skipped} lines elided; see image) …\n${tail}`;
+	}
+	return clampUtf8(body, SNAP_EXCERPT_MAX);
 }
 
 export function formatStatus(messages: AnyMsg[], window: number, vision: boolean): string {
@@ -584,57 +593,18 @@ const FONT5X7: number[][] = [
 	[0x00, 0x00, 0x08, 0x15, 0x02, 0x00, 0x00],
 ];
 
-export function glyph5x7(ch: number): number[] {
-	if (ch < 32 || ch > 126) return BOX;
-	return FONT5X7[ch - 32] ?? BOX;
+
+
+function renderGray(text: string, model?: string): { pixels: Uint8Array; w: number; h: number } | undefined {
+	const shape = snapfont.resolveShape(model);
+	const excerptTok = Math.min(estTokensUtf8(snapExcerpt(text)) + 48, 800);
+	const tok = estTokensUtf8(text);
+	const rows = snapfont.maxRows(tok, excerptTok, shape);
+	return snapfont.raster(text, shape, rows);
 }
 
-function renderGray(text: string): { pixels: Uint8Array; w: number; h: number } | undefined {
-	const cols = SNAP_COLS;
-	let rows = 1;
-	let col = 0;
-	for (const ch of text) {
-		if (ch === "\n" || col + 1 >= cols) {
-			rows += 1;
-			col = 0;
-			if (ch === "\n") continue;
-		}
-		col += 1;
-		if (rows > SNAP_MAX_ROWS) break;
-	}
-	if (rows > SNAP_MAX_ROWS) rows = SNAP_MAX_ROWS;
-	const w = cols * CELL_W;
-	const h = rows * CELL_H;
-	const pixels = new Uint8Array(w * h);
-	pixels.fill(255);
-	let row = 0;
-	col = 0;
-	for (const ch of text) {
-		if (row >= rows) break;
-		if (ch === "\n" || col >= cols) {
-			row += 1;
-			col = 0;
-			if (ch === "\n") continue;
-			if (row >= rows) break;
-		}
-		const bits = glyph5x7(ch.codePointAt(0) ?? 63);
-		const ox = col * CELL_W;
-		const oy = row * CELL_H;
-		for (let gy = 0; gy < 7; gy++) {
-			for (let gx = 0; gx < 5; gx++) {
-				if (((bits[gy] >> (4 - gx)) & 1) !== 1) continue;
-				const x = ox + gx;
-				const y = oy + gy;
-				if (x < w && y < h) pixels[y * w + x] = 16;
-			}
-		}
-		col += 1;
-	}
-	return { pixels, w, h };
-}
-
-function estImageTokens(w: number, h: number): number {
-	return 85 + 170 * Math.ceil(Math.max(w, 1) / 512) * Math.ceil(Math.max(h, 1) / 512);
+function estImageTokens(w: number, h: number, model?: string): number {
+	return snapfont.estImageTokens(w, h, snapfont.familyOf(model));
 }
 
 function snapEligible(messages: AnyMsg[], j: number): boolean {
@@ -646,11 +616,10 @@ function snapEligible(messages: AnyMsg[], j: number): boolean {
 	if (!ref || isSkill(ref)) return false;
 	const tok = estTokensUtf8(body);
 	if (tok < MIN_SNAP_TOKENS) return false;
-	if (asciiRatio(body) < SNAP_ASCII_RATIO) return false;
 	return true;
 }
 
-export function applySnap(messages: AnyMsg[], opts?: { vision?: boolean }): Report {
+export function applySnap(messages: AnyMsg[], opts?: { vision?: boolean; model?: string }): Report {
 	const r = emptyReport();
 	if (opts?.vision === false) return r;
 	const suffix = suffixTokens(messages);
@@ -662,24 +631,24 @@ export function applySnap(messages: AnyMsg[], opts?: { vision?: boolean }): Repo
 		if (suffix[j] <= CACHE_WARM_SUFFIX) cheap.push(j);
 	}
 	const victims = cheap.length > 0 ? cheap : deep;
-	let frames = 0;
 	for (const j of victims) {
-		if (frames >= SNAP_MAX_FRAMES) break;
 		const m = messages[j];
 		const body = textOf(m);
 		const tok = estTokensUtf8(body);
-		const framed = renderGray(body);
+		const framed = renderGray(body, opts?.model);
 		if (!framed) continue;
-		const imgTok = estImageTokens(framed.w, framed.h);
-		if (imgTok > tok * SNAP_SAVINGS) continue;
+		const imgTok = estImageTokens(framed.w, framed.h, opts?.model);
+		const excerpt = snapExcerpt(body);
+		const notice = `[Snapcompact: ${tok} tokens → ${framed.w}x${framed.h} PNG ~${imgTok} tokens]\n${excerpt}`;
+		const after = estTokensUtf8(notice) + imgTok;
+		if (after > tok * SNAP_SAVINGS) continue;
 		const png = encodePngGray(framed.pixels, framed.w, framed.h);
 		m.content = [
-			{ type: "text", text: `[Snapcompact: ${tok} tokens → ${framed.w}x${framed.h} PNG ~${imgTok} tokens]\n${snapExcerpt(body)}` },
+			{ type: "text", text: notice },
 			{ type: "image", data: png.toString("base64"), mimeType: "image/png" },
 		];
 		r.snapped += 1;
-		r.tokensSaved += Math.max(0, tok - imgTok);
-		frames += 1;
+		r.tokensSaved += Math.max(0, tok - after);
 	}
 	return r;
 }
@@ -690,7 +659,77 @@ export function estimateMessages(messages: AnyMsg[]): number {
 	return n;
 }
 
-export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode, vision = true): Report {
+const SNAP_KIND = "moke-snap";
+
+export type SnapFrame = { data: string; w: number; h: number };
+export type SnapDetails = { kind: typeof SNAP_KIND; frames: SnapFrame[] };
+
+export function serializeMessages(messages: AnyMsg[]): string {
+	const parts: string[] = [];
+	for (const m of messages) {
+		const role = String(m.role ?? "?");
+		let body = role === "compactionSummary" ? String((m as { summary?: string }).summary ?? "") : textOf(m);
+		if (body.length > 8000) body = `${body.slice(0, 8000)}\n…`;
+		parts.push(`[${role}] ${body}`);
+	}
+	return parts.join("\n\n");
+}
+
+function formatFileOps(fileOps?: { read?: Iterable<string>; written?: Iterable<string>; edited?: Iterable<string> }): string {
+	if (!fileOps) return "";
+	const lines: string[] = [];
+	const read = [...(fileOps.read ?? [])].slice(0, 40);
+	const written = [...(fileOps.written ?? [])].slice(0, 20);
+	const edited = [...(fileOps.edited ?? [])].slice(0, 20);
+	if (read.length) lines.push(`read: ${read.join(", ")}`);
+	if (written.length) lines.push(`written: ${written.join(", ")}`);
+	if (edited.length) lines.push(`edited: ${edited.join(", ")}`);
+	return lines.length ? `FILES\n${lines.join("\n")}\n` : "";
+}
+
+export function buildCompactPayload(opts: {
+	text: string;
+	tokensBefore: number;
+	fileOps?: { read?: Iterable<string>; written?: Iterable<string>; edited?: Iterable<string> };
+	previousSummary?: string;
+	customInstructions?: string;
+	model?: string;
+	vision?: boolean;
+}): { summary: string; details: SnapDetails } {
+	const frames: SnapFrame[] = [];
+	if (opts.vision !== false && opts.text.length > 0) {
+		const framed = renderGray(opts.text, opts.model);
+		if (framed) {
+			const png = encodePngGray(framed.pixels, framed.w, framed.h);
+			frames.push({ data: png.toString("base64"), w: framed.w, h: framed.h });
+		}
+	}
+	const head = frames.length
+		? `[Snapcompact] Discarded history (~${opts.tokensBefore} tok) is in the attached PNG. Read the pixel font as the prior conversation.`
+		: `[Snapcompact] Mechanical compact (~${opts.tokensBefore} tok). No vision; excerpt only.`;
+	const hint = opts.customInstructions ? `Focus: ${opts.customInstructions}\n` : "";
+	const prev = opts.previousSummary ? `PREVIOUS\n${clampUtf8(opts.previousSummary, 1200)}\n` : "";
+	const files = formatFileOps(opts.fileOps);
+	const excerpt = snapExcerpt(opts.text);
+	const summary = `${head}\n${hint}${prev}${files}EXCERPT\n${excerpt}`;
+	return { summary, details: { kind: SNAP_KIND, frames } };
+}
+
+export function attachSnapFrames(messages: AnyMsg[], details: SnapDetails): void {
+	if (!details?.frames?.length) return;
+	const already = messages.some((m) => textOf(m).includes("[Snapcompact frames"));
+	if (already) return;
+	const idx = messages.findIndex((m) => m.role === "compactionSummary");
+	const images = details.frames.map((f) => ({ type: "image" as const, data: f.data, mimeType: "image/png" }));
+	const injected: AnyMsg = {
+		role: "user",
+		content: [{ type: "text", text: "[Snapcompact frames — read the dense pixel text as the discarded history.]" }, ...images],
+	};
+	if (idx >= 0) messages.splice(idx + 1, 0, injected);
+	else messages.unshift(injected);
+}
+
+export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode, vision = true, model?: string): Report {
 	let r = emptyReport();
 	if (mode === "drop-images") {
 		r.imagesDropped = dropImages(messages);
@@ -708,7 +747,7 @@ export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode,
 		);
 	}
 	const snapNow = mode === "snap" || (window > 0 && estimateMessages(messages) > (window * SNAP_AUTO_PERCENT) / 100);
-	if (snapNow) r = addReport(r, applySnap(messages, { vision }));
+	if (snapNow) r = addReport(r, applySnap(messages, { vision, model }));
 	if (window > 0 && estimateMessages(messages) > (window * 85) / 100) {
 		r = addReport(r, applyShake(messages, { protectTokens: 0, minSavings: 0 }));
 	}
@@ -740,7 +779,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		const msgs = structuredClone(messagesFromBranch(ctx.sessionManager.getBranch()));
 		const window = windowOf(ctx);
 		const used = estimateMessages(msgs);
-		return { report: runPipeline(msgs, window, mode, visionOf(ctx)), used, window };
+		return { report: runPipeline(msgs, window, mode, visionOf(ctx), ctx.model?.id), used, window };
 	};
 
 	pi.on("context", (event, ctx) => {
@@ -748,7 +787,10 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		const mode = force;
 		force = "auto";
 		const used = estimateMessages(event.messages as AnyMsg[]);
-		const r = runPipeline(event.messages as AnyMsg[], window, mode, visionOf(ctx));
+		const r = runPipeline(event.messages as AnyMsg[], window, mode, visionOf(ctx), ctx.model?.id);
+		const lastCompact = [...(ctx.sessionManager?.getBranch?.() ?? [])].reverse().find((e) => e.type === "compaction");
+		const details = lastCompact && typeof lastCompact === "object" ? (lastCompact as { details?: SnapDetails }).details : undefined;
+		if (details?.kind === SNAP_KIND) attachSnapFrames(event.messages as AnyMsg[], details);
 		last = { report: r, window, used, mode };
 		if (ctx.hasUI && (mode !== "auto" || r.tokensSaved >= MIN_SAVINGS)) {
 			ctx.ui.notify(formatReport(r), "info");
@@ -772,8 +814,36 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		},
 	});
 
+	pi.on(
+		"session_before_compact",
+		markMokeCompact(async (event, ctx) => {
+		const prep = event.preparation;
+		if (!prep?.messagesToSummarize?.length) return;
+		const text = serializeMessages(prep.messagesToSummarize as AnyMsg[]);
+		const payload = buildCompactPayload({
+			text,
+			tokensBefore: prep.tokensBefore,
+			fileOps: prep.fileOps,
+			previousSummary: prep.previousSummary,
+			customInstructions: event.customInstructions,
+			model: ctx.model?.id,
+			vision: visionOf(ctx),
+		});
+		const n = payload.details.frames.length;
+		if (ctx.hasUI) ctx.ui.notify(n ? `snapcompact ${n} frame(s), no LLM` : "snapcompact excerpt only, no LLM", "info");
+		return {
+			compaction: {
+				summary: payload.summary,
+				firstKeptEntryId: prep.firstKeptEntryId,
+				tokensBefore: prep.tokensBefore,
+				details: payload.details,
+			},
+		};
+		}),
+	);
+
 	pi.registerCommand("snap", {
-		description: "墨客快压：大段 ASCII tool 输出打成密图（不调模型）",
+		description: "墨客快压：大段 tool 输出就地打密图（不调模型）",
 		handler: async (_args, ctx) => {
 			force = "snap";
 			const { report, used, window } = preview(ctx, "snap");
