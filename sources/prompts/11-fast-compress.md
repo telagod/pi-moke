@@ -6,4 +6,4 @@
 - 入境：大 tool 结果进门即定形。有视觉打 8×13+CJK 密图并留首尾摘录；无视觉只留摘录。此后不回头改旧条。
 - 折页：`/compact` 与官方阈值一律走密图卡。`context({op:"status"})` 看窗与大块（raw=未定形旧结果）；接下来用不到则 `context({op:"compact"})`。
 
-窗况不条条盖。任务节点才见：客开口、goal/yolo 回合、入境定形、将满。无客输入时跟 `turn_start`。换题、大读前先 `context({op:"status"})`。勿空喊「上下文满了」。勿 `/shake` `/snap`——已废。
+窗况不条条盖。任务节点才见：客开口、goal/yolo 回合、入境定形、将满。无客输入时跟 `turn_start`。goal/yolo 每回合看 raw，用不到则 `context({op:"compact"})`——忙时只预约，idle 才折页，不中断 goal。勿空喊「上下文满了」。勿 `/shake` `/snap`——已废。

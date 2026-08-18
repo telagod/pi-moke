@@ -5,6 +5,8 @@ import {
 	applyIngress,
 	attachSnapFrames,
 	buildCompactPayload,
+	canCompactNow,
+	compactHint,
 	encodePngGray,
 	estimateMessages,
 	estTokensUtf8,
@@ -181,8 +183,15 @@ test("usageFooter only stamps task nodes", () => {
 	assert.equal(usageFooter(12, 12000, 100000), "");
 	assert.equal(usageFooter(12, 12000, 100000, null), "");
 	assert.ok(usageFooter(12, 12000, 100000, "user").includes("node=user"));
+	assert.ok(!usageFooter(12, 12000, 100000, "user").includes("compact"));
 	assert.ok(usageFooter(40, undefined, undefined, "ingress").includes("node=ingress"));
+	assert.ok(usageFooter(45, undefined, undefined, "goal").includes('context({op:"compact"})'));
 	assert.ok(usageFooter(86, 86000, 100000, "hard").includes('context({op:"compact"})'));
+	assert.equal(compactHint("goal", 39), false);
+	assert.equal(compactHint("goal", 40), true);
+	assert.equal(canCompactNow({}), false);
+	assert.equal(canCompactNow({ isIdle: () => true }), true);
+	assert.equal(canCompactNow({ isIdle: () => false }), false);
 	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: false }), null);
 	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: true, newUserTurn: true }), "user");
 	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: true, goalActive: true }), "goal");

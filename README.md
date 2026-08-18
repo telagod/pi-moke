@@ -73,7 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | b
 | 人格 | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
 | 四把活 | `blade-autopilot` 工程 · `blade-data-forge` 洗数 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
 | 快压 | 入境定形：大 tool 结果进门即密图或摘录。`/compact` 折页，不调模型。已送前缀不改。 |
-| 窗况 | 任务节点才盖脚注：客开口、goal/yolo 回合、入境、将满。`context({op:"status"})` 列出 raw 大块。 |
+| 窗况 | 任务节点才盖脚注：客开口、goal/yolo 回合、入境、将满。`context compact` 忙时只预约，idle 才折页，不中断 goal。 |
 | Goal | 自动续跑不设限。工具开场即挂，避免中途改 tools 拆 prompt cache。 |
 | 记忆审查 | hermes 近 16 条，thinking 关；本会话钉死 system，审查落盘不回写。 |
 | 界面 | dark · thinking `max` · 官方压缩预留窗 |

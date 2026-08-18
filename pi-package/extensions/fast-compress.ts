@@ -203,6 +203,19 @@ export function taskNode(opts: {
 	return "turn";
 }
 
+export const PROACTIVE_PERCENT = 40;
+
+export function compactHint(node: TaskNode | null | undefined, percent: number | null | undefined): boolean {
+	if (!node || percent == null) return false;
+	if (node === "hard") return true;
+	if ((node === "goal" || node === "turn") && percent >= PROACTIVE_PERCENT) return true;
+	return false;
+}
+
+export function canCompactNow(ctx: { isIdle?: () => boolean }): boolean {
+	return ctx.isIdle?.() === true;
+}
+
 export function usageFooter(
 	percent: number | null | undefined,
 	tokens?: number | null,
@@ -212,8 +225,8 @@ export function usageFooter(
 	if (!node || percent == null) return "";
 	const pct = Math.floor(percent);
 	const span = tokens != null && window ? ` ${tokens}/${window}` : "";
-	if (node === "hard") return `\n\n[ctx ${pct}%${span} node=hard → context({op:"compact"})]`;
-	return `\n\n[ctx ${pct}%${span} node=${node}]`;
+	const hint = compactHint(node, percent) ? ' → context({op:"compact"})' : "";
+	return `\n\n[ctx ${pct}%${span} node=${node}${hint}]`;
 }
 
 function crc32(buf: Uint8Array): number {
@@ -477,7 +490,7 @@ function shapedContent(shaped: IngressShaped, footer: string): Array<{ type: str
 
 export default function mokeFastCompress(pi: ExtensionAPI): void {
 	let last: Report | undefined;
-	let folding = false;
+	let foldQueued = false;
 	let stampedTurn = 0;
 	let pendingTurn = false;
 
@@ -537,29 +550,42 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		return { content: shapedContent(shaped, foot) };
 	});
 
+	const requestFold = (ctx: { compact: (opts?: { onComplete?: () => void; onError?: () => void }) => void; isIdle?: () => boolean; hasUI?: boolean; ui?: { notify: (m: string, k: string) => void } }, force = false) => {
+		const u = usageOf(ctx as { getContextUsage: () => { percent?: number | null } | undefined });
+		if (!force && (u?.percent == null || u.percent < HARD_PERCENT) && !foldQueued) return "idle";
+		if (!canCompactNow(ctx)) {
+			foldQueued = true;
+			return "queued";
+		}
+		foldQueued = false;
+		ctx.compact({
+			onComplete: () => {
+				foldQueued = false;
+			},
+			onError: () => {
+				foldQueued = true;
+			},
+		});
+		return "started";
+	};
+
 	pi.on("context", (event, ctx) => {
 		const lastCompact = [...(ctx.sessionManager?.getBranch?.() ?? [])].reverse().find((e) => e.type === "compaction");
 		const details = lastCompact && typeof lastCompact === "object" ? (lastCompact as { details?: SnapDetails }).details : undefined;
 		if (details?.kind === SNAP_KIND) attachSnapFrames(event.messages as AnyMsg[], details);
 		const u = usageOf(ctx);
-		if (!folding && u?.percent != null && u.percent >= HARD_PERCENT) {
-			folding = true;
-			ctx.compact({
-				onComplete: () => {
-					folding = false;
-				},
-				onError: () => {
-					folding = false;
-				},
-			});
-		}
+		if (u?.percent != null && u.percent >= HARD_PERCENT) foldQueued = true;
 		return { messages: event.messages };
+	});
+
+	pi.on("agent_settled", (_event, ctx) => {
+		requestFold(ctx);
 	});
 
 	pi.on(
 		"session_before_compact",
 		markMokeCompact(async (event, ctx) => {
-			folding = false;
+			foldQueued = false;
 			const prep = event.preparation;
 			if (!prep?.messagesToSummarize?.length) return;
 			const text = serializeMessages(prep.messagesToSummarize as AnyMsg[]);
@@ -589,10 +615,11 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	if (Type) pi.registerTool({
 		name: "context",
 		label: "Context",
-		description: "看窗与大块清单，或折页。脚注只在任务节点：客开口、goal/yolo 回合、入境、将满。换题、大读先 status。",
-		promptSnippet: "status 看窗与大块；compact 机械折页（密图，不调模型）",
+		description: "看窗与大块清单，或预约折页。busy 时只预约，idle 才真正 compact，避免打断 goal。goal/yolo 每回合看 raw，用不到就 compact。",
+		promptSnippet: "status 看窗与大块；compact 预约机械折页（不中断本回合）",
 		promptGuidelines: [
-			"换题或大读前用 context({op:\"status\"}) 看 raw 大块，接下来用不到就 context({op:\"compact\"})。",
+			"goal/yolo 或换题、大读前用 context({op:\"status\"}) 看 raw 大块；接下来用不到就 context({op:\"compact\"})。",
+			"compact 在忙时只预约，回合结束后才折页，不会打断 goal。",
 			"不要等窗口七成，也不要空喊上下文满了。",
 		],
 		parameters: Type.Object({
@@ -604,8 +631,9 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 			const window = windowOf(ctx);
 			const status = formatStatus(msgs, window, visionOf(ctx));
 			if (op === "compact") {
-				ctx.compact();
-				return { content: [{ type: "text", text: `已触发折页。${status}` }] };
+				const state = requestFold(ctx, true);
+				const note = state === "started" ? "已折页" : "已预约折页，本回合结束后执行，不中断 goal";
+				return { content: [{ type: "text", text: `${note}。${status}` }] };
 			}
 			return { content: [{ type: "text", text: status }] };
 		},
