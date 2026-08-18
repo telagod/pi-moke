@@ -38,10 +38,8 @@ moke_pin_package() {
       const fs = require("fs");
       const p = process.argv[1], pkg = process.argv[2];
       const d = JSON.parse(fs.readFileSync(p, "utf8"));
-      const pkgs = (d.packages || []).filter((x) => !/pi-moke|pi-package/.test(String(x)));
-      const i = pkgs.findIndex((x) => String(x).includes("pi-safe-compact"));
-      if (i >= 0) pkgs.splice(i, 0, pkg);
-      else pkgs.push(pkg);
+      const pkgs = (d.packages || []).filter((x) => !/pi-moke|pi-package|pi-safe-compact/.test(String(x)));
+      pkgs.push(pkg);
       d.packages = pkgs;
       fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
     ' "$settings" "$pkg"

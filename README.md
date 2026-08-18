@@ -8,7 +8,7 @@
 <p align="center">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f" />
   <img alt="pi" src="https://img.shields.io/badge/pi-%E2%89%A50.83-0b6bcb" />
-  <img alt="version" src="https://img.shields.io/badge/pi--moke-1.4.0-6f42c1" />
+  <img alt="version" src="https://img.shields.io/badge/pi--moke-1.5.0-6f42c1" />
   <img alt="skills" src="https://img.shields.io/badge/skills-4-8a63d2" />
   <img alt="extensions" src="https://img.shields.io/badge/extensions-12%20%2B%20快压-d97706" />
 </p>
@@ -30,7 +30,7 @@
 | --- | --- |
 | 🧙 **人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
 | 🛠 **四把活** | `blade-autopilot` 工程开干 · `blade-data-forge` 洗数对账 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
-| 🗜 **墨客快压** | prune → shake → snap。已送前缀不改（sealed）；硬线 /compact 才开新世纪。 |
+| 🗜 **墨客快压** | 入境定形 + `/compact` 折页。大结果进门即密图/摘录；不回头砍前缀。 |
 | 🎯 **Goal** | 自动续跑 **不设限**。工具开场即挂，免得中途拆 cache。 |
 | 🧠 **记忆审查** | hermes 只看近 16 条，thinking 关，避免 120s×2 超时。 |
 | 🎨 **界面** | dark 主题 · thinking `max` · 自动压缩预留窗 |
@@ -100,7 +100,7 @@ pi-moke/
 │   ├── prompts/                        # 身份 · 本色 · 快压 · 俚语 · 章程
 │   └── build.sh                        # 模块 → AGENTS.md
 └── pi-package/                         # 可独立 npm publish
-    ├── extensions/                     # compact-guard + 快压（prune / shake / snap）
+    ├── extensions/                     # compact-guard + 快压（入境定形 / 折页）
     └── skills/                         # 四把活
 ```
 

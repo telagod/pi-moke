@@ -2,42 +2,32 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { markMokeCompact, neutralizeForeignCompactHandlers } from "./compact-guard.ts";
 import {
-	applyPrune,
-	applySealed,
-	applyShake,
-	applySnap,
-	canReuseSeal,
-	dropImages,
+	applyIngress,
+	attachSnapFrames,
+	buildCompactPayload,
 	encodePngGray,
 	estimateMessages,
 	estTokensUtf8,
 	formatStatus,
 	isPlaceholder,
+	loadTypebox,
 	MIN_SNAP_TOKENS,
 	modelHasVision,
+	shapeIngress,
 	snapExcerpt,
 	serializeMessages,
-	buildCompactPayload,
-	attachSnapFrames,
 	textOf,
+	usageFooter,
 	type AnyMsg,
 } from "./fast-compress.ts";
 
-const textJoin = textOf;
-
-function toolPair(id: string, name: string, args: Record<string, unknown>, body: string): AnyMsg[] {
-	return [
-		{
-			role: "assistant",
-			content: [{ type: "toolCall", id, name, arguments: args }],
-		},
-		{
-			role: "toolResult",
-			toolCallId: id,
-			toolName: name,
-			content: [{ type: "text", text: body }],
-		},
-	];
+function toolResult(id: string, name: string, body: string): AnyMsg {
+	return {
+		role: "toolResult",
+		toolCallId: id,
+		toolName: name,
+		content: [{ type: "text", text: body }],
+	};
 }
 
 test("estTokensUtf8 does not underreport CJK", () => {
@@ -46,65 +36,73 @@ test("estTokensUtf8 does not underreport CJK", () => {
 	assert.equal(estTokensUtf8("abcd"), 1);
 });
 
-test("prune supersedes older read of the same path", () => {
-	const big = "x".repeat(800);
-	const msgs: AnyMsg[] = [
-		...toolPair("r1", "read", { path: "src/a.ts" }, big),
-		...toolPair("r2", "read", { path: "src/a.ts" }, big + "newer"),
-	];
-	const r = applyPrune(msgs);
-	assert.equal(r.superseded, 1);
-	assert.ok(String((msgs[1].content as { text: string }[])[0].text).startsWith("[Superseded"));
-	assert.equal((msgs[3].content as { text: string }[])[0].text, big + "newer");
+test("shapeIngress leaves small tool output alone", () => {
+	const shaped = shapeIngress("hello world", { vision: true });
+	assert.equal(shaped.changed, false);
+	assert.equal(shaped.text, "hello world");
 });
 
-test("prune age-cuts old bash and keeps latest read", () => {
-	const big = "z".repeat(20 * 1024);
-	const msgs: AnyMsg[] = [];
-	for (let i = 0; i < 8; i++) msgs.push(...toolPair(`b${i}`, "bash", {}, big));
-	msgs.push(...toolPair("rd", "read", { path: "keep.ts" }, big));
-	const r = applyPrune(msgs);
-	assert.ok(r.pruned > 0);
-	const read = msgs.find((m) => m.toolCallId === "rd");
-	assert.equal((read?.content as { text: string }[])[0].text, big);
-	assert.ok(msgs.some((m) => m.role === "toolResult" && isPlaceholder((m.content as { text: string }[])[0].text)));
+test("shapeIngress skips skill and already-shaped text", () => {
+	const big = "fn main() void { return; }\n".repeat(600);
+	assert.equal(shapeIngress(big, { toolName: "skill" }).changed, false);
+	assert.equal(shapeIngress("[Snapcompact: already]", { vision: true }).changed, false);
 });
 
-test("shake drops old tool results and large fences, keeps skill", () => {
-	const big = "y".repeat(6 * 1024);
-	const fence = `intro\n\`\`\`\n${"line\n".repeat(500)}\`\`\`\nend`;
-	const msgs: AnyMsg[] = [
-		...toolPair("b0", "bash", {}, big),
-		...toolPair("sk", "skill", { name: "x" }, big),
-		{ role: "assistant", content: [{ type: "text", text: fence }] },
-	];
-	const r = applyShake(msgs, { protectTokens: 0, minSavings: 0 });
-	assert.ok(r.shaken >= 2);
-	assert.ok(String((msgs[1].content as { text: string }[])[0].text).startsWith("[Shake elided"));
-	assert.equal((msgs[3].content as { text: string }[])[0].text, big);
-	assert.ok(String((msgs[4].content as { text: string }[])[0].text).includes("[Shake elided fence"));
-});
-
-test("snap rasters large ASCII tool output", () => {
+test("shapeIngress snaps large ASCII when vision is on", () => {
 	const ascii = "fn main() void { return; }\n".repeat(600);
 	assert.ok(estTokensUtf8(ascii) >= MIN_SNAP_TOKENS);
-	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
-	const r = applySnap(msgs);
-	assert.equal(r.snapped, 1);
-	const blocks = msgs[1].content as Array<{ type: string; data?: string; text?: string }>;
-	assert.ok(blocks.some((b) => b.type === "image" && typeof b.data === "string" && b.data.length > 0));
-	assert.ok(String((msgs[1].content as { text?: string }[])[0].text).startsWith("[Snapcompact"));
+	const shaped = shapeIngress(ascii, { vision: true, model: "gpt-4o" });
+	assert.equal(shaped.changed, true);
+	assert.equal(shaped.snapped, true);
+	assert.ok(shaped.text.startsWith("[Snapcompact"));
+	assert.ok(shaped.image && shaped.image.data.length > 80);
+	assert.ok(shaped.text.includes("fn main()"));
 });
 
-test("snap rasters CJK tool output", () => {
+test("shapeIngress excerpts when there is no vision", () => {
+	const ascii = "fn snap_excerpt_marker() void { return; }\n".repeat(600);
+	const shaped = shapeIngress(ascii, { vision: false });
+	assert.equal(shaped.changed, true);
+	assert.equal(shaped.snapped, false);
+	assert.equal(shaped.excerpted, true);
+	assert.equal(shaped.image, undefined);
+	assert.ok(shaped.text.includes("snap_excerpt_marker"));
+	assert.ok(shaped.text.startsWith("[Snapcompact"));
+});
+
+test("shapeIngress rasters CJK", () => {
 	const zh = "这是一段很长的中文日志用来验证密图能画汉字。".repeat(150);
 	assert.ok(estTokensUtf8(zh) >= MIN_SNAP_TOKENS);
-	const msgs: AnyMsg[] = [...toolPair("b1", "bash", {}, zh)];
-	const r = applySnap(msgs);
+	const shaped = shapeIngress(zh, { vision: true, model: "claude-sonnet-4" });
+	assert.equal(shaped.snapped, true);
+	assert.ok(shaped.text.includes("中文日志"));
+});
+
+test("applyIngress writes the shaped body onto a toolResult", () => {
+	const ascii = "fn main() void { return; }\n".repeat(600);
+	const m = toolResult("b0", "bash", ascii);
+	const r = applyIngress(m, { vision: true, model: "gpt-4o" });
 	assert.equal(r.snapped, 1);
-	const blocks = msgs[1].content as Array<{ type: string; data?: string; text?: string }>;
-	assert.ok(blocks.some((b) => b.type === "image"));
-	assert.ok(textJoin(msgs[1]).includes("中文日志"));
+	assert.ok(textOf(m).startsWith("[Snapcompact"));
+	const blocks = m.content as Array<{ type: string; data?: string }>;
+	assert.ok(blocks.some((b) => b.type === "image" && typeof b.data === "string" && b.data.length > 0));
+});
+
+test("applyIngress does not rewrite a sibling old result", () => {
+	const ascii = "fn main() void { return; }\n".repeat(600);
+	const old = toolResult("old", "bash", ascii);
+	const neu = toolResult("neu", "bash", ascii);
+	applyIngress(neu, { vision: true, model: "gpt-4o" });
+	assert.equal(textOf(old), ascii);
+	assert.ok(textOf(neu).startsWith("[Snapcompact"));
+});
+
+test("shapeIngress is idempotent", () => {
+	const ascii = "fn main() void { return; }\n".repeat(600);
+	const once = shapeIngress(ascii, { vision: true, model: "gpt-4o" });
+	const twice = shapeIngress(once.text, { vision: true, model: "gpt-4o" });
+	assert.equal(twice.changed, false);
+	assert.equal(twice.text, once.text);
 });
 
 test("encodePngGray writes a valid PNG signature", () => {
@@ -112,14 +110,6 @@ test("encodePngGray writes a valid PNG signature", () => {
 	px.fill(200);
 	const png = encodePngGray(px, 8, 8);
 	assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-});
-
-test("dropImages removes image blocks", () => {
-	const msgs: AnyMsg[] = [
-		{ role: "user", content: [{ type: "text", text: "see" }, { type: "image", data: "AAAA", mimeType: "image/png" }] },
-	];
-	assert.equal(dropImages(msgs), 1);
-	assert.equal((msgs[0].content as unknown[]).length, 1);
 });
 
 test("8x13 and CJK fonts have ink", async () => {
@@ -132,46 +122,6 @@ test("8x13 and CJK fonts have ink", async () => {
 	assert.equal(resolveShape("gpt-4o").name, "8on22");
 });
 
-test("snap keeps a text excerpt so the original is not evaporated", () => {
-	const line = "fn snap_excerpt_marker() void { return; }\n";
-	const ascii = line.repeat(600);
-	assert.ok(estTokensUtf8(ascii) >= MIN_SNAP_TOKENS);
-	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
-	const r = applySnap(msgs);
-	assert.equal(r.snapped, 1);
-	assert.ok(textJoin(msgs[1]).includes("snap_excerpt_marker"));
-});
-
-test("snap skips when the model has no vision", () => {
-	const ascii = "fn main() void { return; }\n".repeat(600);
-	const msgs: AnyMsg[] = [...toolPair("b0", "bash", {}, ascii)];
-	const r = applySnap(msgs, { vision: false });
-	assert.equal(r.snapped, 0);
-	assert.equal(textJoin(msgs[1]), ascii);
-});
-
-test("snap prefers cheap tail so prefix cache stays warm", () => {
-	const ascii = "fn main() void { return; }\n".repeat(600);
-	const msgs: AnyMsg[] = [];
-	for (let i = 0; i < 6; i++) msgs.push(...toolPair(`old${i}`, "bash", {}, ascii));
-	msgs.push(...toolPair("tail", "bash", {}, ascii));
-	const r = applySnap(msgs);
-	assert.ok(r.snapped >= 1);
-	const old = msgs.find((m) => m.toolCallId === "old0");
-	assert.ok(old && !textJoin(old).startsWith("[Snapcompact"));
-	const tail = msgs.find((m) => m.toolCallId === "tail");
-	assert.ok(tail && textJoin(tail).startsWith("[Snapcompact"));
-});
-
-test("shake elides large XML blocks", () => {
-	const inner = "x".repeat(6 * 1024);
-	const xml = `<log>\n${inner}\n</log>`;
-	const msgs: AnyMsg[] = [{ role: "assistant", content: [{ type: "text", text: xml }] }];
-	const r = applyShake(msgs, { protectTokens: 0, minSavings: 0 });
-	assert.ok(r.shaken >= 1);
-	assert.ok(textJoin(msgs[0]).includes("[Shake elided xml"));
-});
-
 test("modelHasVision gates known families", () => {
 	assert.equal(modelHasVision("claude-sonnet-4"), true);
 	assert.equal(modelHasVision("gpt-4o-mini"), true);
@@ -181,12 +131,14 @@ test("modelHasVision gates known families", () => {
 	assert.equal(modelHasVision("o1-mini"), false);
 });
 
-test("formatStatus reports usage next-layer and vision", () => {
+test("formatStatus reports compact-or-idle", () => {
 	const msgs: AnyMsg[] = [{ role: "user", content: [{ type: "text", text: "hi" }] }];
 	const s = formatStatus(msgs, 1000, false);
 	assert.ok(s.includes("vision=no"));
-	assert.ok(s.includes("next="));
+	assert.ok(s.includes("next=idle"));
 	assert.ok(estimateMessages(msgs) > 0);
+	const fat: AnyMsg[] = [{ role: "user", content: [{ type: "text", text: "x".repeat(4000) }] }];
+	assert.ok(formatStatus(fat, 1000, true).includes("next=compact"));
 });
 
 test("snapExcerpt keeps head and tail", () => {
@@ -202,6 +154,13 @@ test("placeholder detector", () => {
 	assert.ok(isPlaceholder("[Output truncated - 12 tokens]"));
 	assert.ok(isPlaceholder("[Snapcompact: 3000 tokens → 768x256 PNG ~400 tokens]"));
 	assert.equal(isPlaceholder("real tool output"), false);
+});
+
+test("usageFooter stays quiet under 70 and nudges compact at 85", () => {
+	assert.equal(usageFooter(69), "");
+	assert.ok(usageFooter(72, 72000, 100000).includes("[ctx 72%"));
+	assert.ok(!usageFooter(72).includes("compact"));
+	assert.ok(usageFooter(86).includes('context({op:"compact"})'));
 });
 
 test("serializeMessages prefixes roles", () => {
@@ -237,7 +196,7 @@ test("attachSnapFrames injects after compactionSummary", () => {
 	];
 	attachSnapFrames(msgs, { kind: "moke-snap", frames: [{ data: "AAAA", w: 8, h: 8 }] });
 	assert.equal(msgs[1].role, "user");
-	assert.ok(textJoin(msgs[1]).includes("Snapcompact frames"));
+	assert.ok(textOf(msgs[1]).includes("Snapcompact frames"));
 	const blocks = msgs[1].content as Array<{ type: string }>;
 	assert.ok(blocks.some((b) => b.type === "image"));
 });
@@ -253,35 +212,22 @@ test("compact-guard skips foreign session_before_compact handlers", async () => 
 	assert.equal((await (list[1] as () => Promise<{ compaction: { summary: string } }>)()).compaction.summary, "snap");
 });
 
-test("applySealed freezes prefix after first send", () => {
-	const big = "y".repeat(8 * 1024);
-	const first = [...toolPair("a", "bash", {}, big)];
-	const state = { prefix: null as AnyMsg[] | null };
-	applySealed(first, state, { window: 1000, mode: "shake", vision: false });
-	const frozen = textJoin(first[1]);
-	assert.ok(frozen.startsWith("[Shake"));
-
-	const second = [...toolPair("a", "bash", {}, big), { role: "user", content: "more" }];
-	applySealed(second, state, { window: 200_000, vision: false });
-	assert.equal(textJoin(second[1]), frozen);
-	assert.equal(second[2]?.role, "user");
-});
-
-test("applySealed force shake opens a new epoch", () => {
-	const big = "z".repeat(8 * 1024);
-	const first = [...toolPair("a", "bash", {}, big)];
-	const state = { prefix: null as AnyMsg[] | null };
-	applySealed(first, state, { window: 200_000, vision: false });
-	const second = [...toolPair("a", "bash", {}, big), { role: "user", content: "more" }];
-	applySealed(second, state, { window: 1000, mode: "shake", vision: false });
-	assert.ok(textJoin(second[1]).startsWith("[Shake"));
-});
-
-test("canReuseSeal rejects shorter history and new compaction", () => {
-	const prefix: AnyMsg[] = [{ role: "user", content: "a" }, { role: "assistant", content: "b" }];
-	assert.equal(canReuseSeal(prefix, [{ role: "user", content: "a" }]), false);
-	assert.equal(
-		canReuseSeal([{ role: "compactionSummary", summary: "old" }], [{ role: "compactionSummary", summary: "new" }, { role: "user", content: "x" }]),
-		false,
-	);
+test("loadTypebox resolves from the pi CLI", async () => {
+	const { execSync } = await import("node:child_process");
+	const { realpathSync } = await import("node:fs");
+	let cli: string;
+	try {
+		cli = realpathSync(execSync("command -v pi", { encoding: "utf8" }).trim());
+	} catch {
+		return;
+	}
+	const prev = process.argv[1];
+	process.argv[1] = cli;
+	try {
+		const Type = loadTypebox();
+		assert.ok(Type);
+		assert.ok(Type.Object({ op: Type.Unsafe({ type: "string", enum: ["status", "compact"] }) }));
+	} finally {
+		process.argv[1] = prev;
+	}
 });
