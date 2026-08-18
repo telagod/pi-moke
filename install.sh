@@ -69,6 +69,8 @@ moke_doctor() {
   [ -f "$REPO_DIR/pi-package/extensions/fast-compress.ts" ] && ok "快压扩展存在" || bad "快压扩展存在"
   [ -f "$REPO_DIR/pi-package/extensions/compact-guard.ts" ] && ok "compact-guard 存在" || bad "compact-guard 存在"
   grep -q "fast-compress.ts" "$REPO_DIR/pi-package/package.json" 2>/dev/null && ok "package.json 声明扩展" || bad "package.json 声明扩展"
+  [ -f "$REPO_DIR/pi-package/skills/re-autopilot/SKILL.md" ] && ok "拆骨 skill 存在" || bad "拆骨 skill 存在"
+  grep -q '\$re-autopilot' "$REPO_DIR/AGENTS.md" 2>/dev/null && ok "仓库含拆骨路由" || bad "仓库含拆骨路由"
   if [ -f "$AGENT_DIR/settings.json" ]; then
     if node -e '
       const fs = require("fs"); const path = require("path");

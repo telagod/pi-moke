@@ -8,8 +8,8 @@
 <p align="center">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square" />
   <img alt="pi" src="https://img.shields.io/badge/pi-%E2%89%A50.83-0b6bcb?style=flat-square" />
-  <img alt="version" src="https://img.shields.io/badge/pi--moke-1.5.0-6f42c1?style=flat-square" />
-  <img alt="skills" src="https://img.shields.io/badge/skills-4-8a63d2?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/pi--moke-1.6.0-6f42c1?style=flat-square" />
+  <img alt="skills" src="https://img.shields.io/badge/skills-10-8a63d2?style=flat-square" />
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522-339933?style=flat-square" />
 </p>
 
@@ -70,8 +70,8 @@ curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | b
 
 | 模块 | 行为 |
 | --- | --- |
-| 人格 | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
-| 四把活 | `blade-autopilot` 工程 · `blade-data-forge` 洗数 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
+| 人格 | 短章程：身份、本色、拆骨、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
+| 十把活 | 工程四件套：`blade-autopilot` · `blade-data-forge` · `blade-research-forge` · `ctf-autopwn`。<br/>拆骨六件套：`re-autopilot` · `net-reverse` · `api-reverse` · `js-reverse` · `netsec-audit` · `malware-triage`。 |
 | 快压 | 入境定形：大 tool 结果进门即密图或摘录。`/compact` 折页，不调模型。已送前缀不改。 |
 | 窗况 | 任务节点才盖脚注：客开口、goal/yolo 回合、入境、将满。`context compact` 忙时只预约，idle 才折页，不中断 goal。 |
 | Goal | 自动续跑不设限。工具开场即挂，避免中途改 tools 拆 prompt cache。 |
@@ -113,7 +113,7 @@ pi-moke/
 │   └── build.sh                        # 模块 → AGENTS.md
 └── pi-package/                         # 可独立 npm publish
     ├── extensions/                     # compact-guard + 快压（入境 / 折页）
-    └── skills/                         # 四把活
+    └── skills/                         # 十把活（工程 + 拆骨）
 ```
 
 ---
@@ -160,7 +160,7 @@ Goal 轮次帽：`~/.pi/agent/pi-goal.json` → `continuationLimits.automaticTur
 
 ## 安全
 
-扩展与技能可执行任意代码。本包不含密钥，**安装前请自行审阅第三方扩展**（清单见 `settings.template.json`）。
+扩展与技能可执行任意代码。本包不含密钥，**安装前请自行审阅第三方扩展**（清单见 `settings.template.json`）。拆骨六件套只做客交付的本地样本、源码与书面范围；不写商业注册机、C2、对陌生站重放。
 
 官方说明：[packages.md](https://github.com/earendil-works/pi-mono/blob/main/docs/packages.md#security)
 

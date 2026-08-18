@@ -1,7 +1,7 @@
 {
   "name": "pi-moke",
-  "version": "1.5.0",
-  "description": "墨客（MoKe）—— 终端行脚墨客 pi 形态：人格、路由、skills、快压开箱即用",
+  "version": "1.6.0",
+  "description": "墨客（MoKe）—— 终端行脚墨客 pi 形态：人格、路由、工程/拆骨 skills、快压开箱即用",
   "keywords": ["pi-package", "moke", "mo-ke", "ctf", "launcher", "compact"],
   "type": "module",
   "license": "MIT",
