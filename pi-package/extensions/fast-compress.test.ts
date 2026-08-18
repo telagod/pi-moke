@@ -17,6 +17,7 @@ import {
 	shapeIngress,
 	snapExcerpt,
 	serializeMessages,
+	lastUserIsGoal,
 	taskNode,
 	textOf,
 	usageFooter,
@@ -182,10 +183,14 @@ test("usageFooter only stamps task nodes", () => {
 	assert.ok(usageFooter(12, 12000, 100000, "user").includes("node=user"));
 	assert.ok(usageFooter(40, undefined, undefined, "ingress").includes("node=ingress"));
 	assert.ok(usageFooter(86, 86000, 100000, "hard").includes('context({op:"compact"})'));
-	assert.equal(taskNode({ percent: 12, ingressChanged: false, newUserTurn: false }), null);
-	assert.equal(taskNode({ percent: 12, ingressChanged: false, newUserTurn: true }), "user");
-	assert.equal(taskNode({ percent: 12, ingressChanged: true, newUserTurn: true }), "ingress");
-	assert.equal(taskNode({ percent: 86, ingressChanged: false, newUserTurn: false }), "hard");
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: false }), null);
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: true, newUserTurn: true }), "user");
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: true, goalActive: true }), "goal");
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newTurn: true }), "turn");
+	assert.equal(taskNode({ percent: 12, ingressChanged: true, newTurn: true }), "ingress");
+	assert.equal(taskNode({ percent: 86, ingressChanged: false, newTurn: false }), "hard");
+	assert.equal(lastUserIsGoal([{ role: "user", content: "<!-- pi-goal-continuation:abc -->" }]), true);
+	assert.equal(lastUserIsGoal([{ role: "user", content: "在吗" }]), false);
 });
 
 test("serializeMessages prefixes roles", () => {

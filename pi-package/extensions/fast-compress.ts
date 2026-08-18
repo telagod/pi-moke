@@ -173,21 +173,34 @@ export function setText(m: AnyMsg, s: string): void {
 	m.content = [{ type: "text", text: s }];
 }
 
-export type TaskNode = "user" | "ingress" | "hard";
+export type TaskNode = "user" | "goal" | "turn" | "ingress" | "hard";
+
+const GOAL_MARK = /pi-goal-(?:continuation|prompt):/;
 
 export function countUserTurns(messages: AnyMsg[]): number {
 	return messages.reduce((n, m) => n + (m.role === "user" ? 1 : 0), 0);
 }
 
+export function lastUserIsGoal(messages: AnyMsg[]): boolean {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		if (messages[i].role === "user") return GOAL_MARK.test(textOf(messages[i]));
+	}
+	return false;
+}
+
 export function taskNode(opts: {
 	percent?: number | null;
 	ingressChanged: boolean;
-	newUserTurn: boolean;
+	newTurn: boolean;
+	newUserTurn?: boolean;
+	goalActive?: boolean;
 }): TaskNode | null {
 	if (opts.percent != null && opts.percent >= HARD_PERCENT) return "hard";
 	if (opts.ingressChanged) return "ingress";
+	if (!opts.newTurn && !opts.newUserTurn) return null;
+	if (opts.goalActive) return "goal";
 	if (opts.newUserTurn) return "user";
-	return null;
+	return "turn";
 }
 
 export function usageFooter(
@@ -466,6 +479,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	let last: Report | undefined;
 	let folding = false;
 	let stampedTurn = 0;
+	let pendingTurn = false;
 
 	const windowOf = (ctx: { getContextUsage: () => { contextWindow?: number } | undefined }): number =>
 		ctx.getContextUsage()?.contextWindow ?? 128 * 1024;
@@ -475,6 +489,10 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	const usageOf = (ctx: { getContextUsage: () => { tokens?: number | null; percent?: number | null; contextWindow?: number } | undefined }) =>
 		ctx.getContextUsage();
 
+	pi.on("turn_start", () => {
+		pendingTurn = true;
+	});
+
 	pi.on("tool_result", (event, ctx) => {
 		const raw = contentToText(event.content);
 		const shaped = shapeIngress(raw, {
@@ -483,13 +501,19 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 			toolName: event.toolName,
 		});
 		const u = usageOf(ctx);
-		const turn = countUserTurns(messagesFromBranch(ctx.sessionManager?.getBranch?.() ?? []));
+		const msgs = messagesFromBranch(ctx.sessionManager?.getBranch?.() ?? []);
+		const turn = countUserTurns(msgs);
 		const node = taskNode({
 			percent: u?.percent,
 			ingressChanged: shaped.changed,
+			newTurn: pendingTurn || turn > stampedTurn,
 			newUserTurn: turn > stampedTurn,
+			goalActive: lastUserIsGoal(msgs),
 		});
-		if (node) stampedTurn = turn;
+		if (node) {
+			pendingTurn = false;
+			stampedTurn = turn;
+		}
 		const foot = usageFooter(u?.percent, u?.tokens, u?.contextWindow, node);
 		if (!shaped.changed && !foot) return;
 		if (shaped.changed) {
@@ -565,7 +589,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	if (Type) pi.registerTool({
 		name: "context",
 		label: "Context",
-		description: "看窗与大块清单，或折页。脚注只在任务节点出现（客开口 / 入境 / 将满）。换题、大读先 status。",
+		description: "看窗与大块清单，或折页。脚注只在任务节点：客开口、goal/yolo 回合、入境、将满。换题、大读先 status。",
 		promptSnippet: "status 看窗与大块；compact 机械折页（密图，不调模型）",
 		promptGuidelines: [
 			"换题或大读前用 context({op:\"status\"}) 看 raw 大块，接下来用不到就 context({op:\"compact\"})。",
