@@ -1,7 +1,7 @@
 /**
  * 墨客快压 — prune → shake → snap。无 LLM。
  * 挂 context 钩子：只改发出去的副本，磁盘会话仍是全文。
- * 比 omp：同 path 再 read 立刻 supersede；廉价尾不够才深裁；snap 8x13+CJK 按家塑形。
+ * 已送进前缀的字节不改（sealed 水位）。硬线 /compact /shake /snap 才开新世纪。
  */
 import { deflateSync } from "node:zlib";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,6 +13,7 @@ export const MIN_SAVINGS = 4 * 1024;
 export const CACHE_WARM_SUFFIX = 8 * 1024;
 export const SHAKE_AUTO_PERCENT = 70;
 export const SNAP_AUTO_PERCENT = 80;
+export const HARD_PERCENT = 85;
 export const MIN_PRUNE_TOKENS = 50;
 export const MIN_SNAP_TOKENS = 3000;
 export const FENCE_MIN_TOKENS = 400;
@@ -729,14 +730,24 @@ export function attachSnapFrames(messages: AnyMsg[], details: SnapDetails): void
 	else messages.unshift(injected);
 }
 
-export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode, vision = true, model?: string): Report {
+export function runPipeline(
+	messages: AnyMsg[],
+	window: number,
+	mode: ForceMode,
+	vision = true,
+	model?: string,
+	usedHint?: number,
+): Report {
+	const local0 = estimateMessages(messages);
+	const prefixTok = usedHint === undefined ? 0 : Math.max(0, usedHint - local0);
+	const total = () => prefixTok + estimateMessages(messages);
 	let r = emptyReport();
 	if (mode === "drop-images") {
 		r.imagesDropped = dropImages(messages);
 		return r;
 	}
 	r = addReport(r, applyPrune(messages));
-	const shakeNow = mode === "shake" || (window > 0 && estimateMessages(messages) > (window * SHAKE_AUTO_PERCENT) / 100);
+	const shakeNow = mode === "shake" || (window > 0 && total() > (window * SHAKE_AUTO_PERCENT) / 100);
 	if (shakeNow) {
 		r = addReport(
 			r,
@@ -746,11 +757,66 @@ export function runPipeline(messages: AnyMsg[], window: number, mode: ForceMode,
 			}),
 		);
 	}
-	const snapNow = mode === "snap" || (window > 0 && estimateMessages(messages) > (window * SNAP_AUTO_PERCENT) / 100);
+	const snapNow = mode === "snap" || (window > 0 && total() > (window * SNAP_AUTO_PERCENT) / 100);
 	if (snapNow) r = addReport(r, applySnap(messages, { vision, model }));
-	if (window > 0 && estimateMessages(messages) > (window * 85) / 100) {
+	if (window > 0 && total() > (window * HARD_PERCENT) / 100) {
 		r = addReport(r, applyShake(messages, { protectTokens: 0, minSavings: 0 }));
 	}
+	return r;
+}
+
+export function cloneMsg(m: AnyMsg): AnyMsg {
+	const next: AnyMsg = { ...m };
+	if (Array.isArray(m.content)) {
+		next.content = m.content.map((b) => (b && typeof b === "object" ? { ...b } : b));
+	}
+	return next;
+}
+
+export function cloneMsgs(ms: AnyMsg[]): AnyMsg[] {
+	return ms.map(cloneMsg);
+}
+
+export type SealState = { prefix: AnyMsg[] | null };
+
+function compactionKey(m: AnyMsg | undefined): string {
+	if (!m || m.role !== "compactionSummary") return "";
+	const s = (m as { summary?: string }).summary;
+	return typeof s === "string" ? s : textOf(m);
+}
+
+export function canReuseSeal(prefix: AnyMsg[] | null, messages: AnyMsg[]): boolean {
+	if (!prefix || prefix.length === 0) return false;
+	if (messages.length < prefix.length) return false;
+	return compactionKey(messages[0]) === compactionKey(prefix[0]);
+}
+
+/** 只压未封口后缀。硬线或强制模式才动前缀并开新世纪。 */
+export function applySealed(
+	messages: AnyMsg[],
+	state: SealState,
+	opts: { window: number; mode?: ForceMode; vision: boolean; model?: string },
+): Report {
+	const mode = opts.mode ?? "auto";
+	const force = mode !== "auto";
+	if (force || !canReuseSeal(state.prefix, messages)) {
+		const r = runPipeline(messages, opts.window, mode, opts.vision, opts.model);
+		state.prefix = cloneMsgs(messages);
+		return r;
+	}
+
+	const sealedAt = state.prefix!.length;
+	const tail = messages.slice(sealedAt).map(cloneMsg);
+	const usedHint = estimateMessages(state.prefix!) + estimateMessages(tail);
+	const r = runPipeline(tail, opts.window, "auto", opts.vision, opts.model, usedHint);
+	const outgoing = [...cloneMsgs(state.prefix!), ...tail];
+	if (opts.window > 0 && estimateMessages(outgoing) > (opts.window * HARD_PERCENT) / 100) {
+		const r2 = runPipeline(messages, opts.window, "auto", opts.vision, opts.model);
+		state.prefix = cloneMsgs(messages);
+		return addReport(r, r2);
+	}
+	messages.splice(0, messages.length, ...outgoing);
+	state.prefix = cloneMsgs(outgoing);
 	return r;
 }
 
@@ -765,6 +831,11 @@ export function messagesFromBranch(branch: Array<{ type?: string; message?: AnyM
 export default function mokeFastCompress(pi: ExtensionAPI): void {
 	let force: ForceMode = "auto";
 	let last: { report: Report; window: number; used: number; mode: ForceMode } | undefined;
+	const seal: SealState = { prefix: null };
+
+	pi.on("session_start", () => {
+		seal.prefix = null;
+	});
 
 	const windowOf = (ctx: { getContextUsage: () => { contextWindow?: number } | undefined }): number =>
 		ctx.getContextUsage()?.contextWindow ?? 128 * 1024;
@@ -787,7 +858,12 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 		const mode = force;
 		force = "auto";
 		const used = estimateMessages(event.messages as AnyMsg[]);
-		const r = runPipeline(event.messages as AnyMsg[], window, mode, visionOf(ctx), ctx.model?.id);
+		const r = applySealed(event.messages as AnyMsg[], seal, {
+			window,
+			mode,
+			vision: visionOf(ctx),
+			model: ctx.model?.id,
+		});
 		const lastCompact = [...(ctx.sessionManager?.getBranch?.() ?? [])].reverse().find((e) => e.type === "compaction");
 		const details = lastCompact && typeof lastCompact === "object" ? (lastCompact as { details?: SnapDetails }).details : undefined;
 		if (details?.kind === SNAP_KIND) attachSnapFrames(event.messages as AnyMsg[], details);
@@ -817,6 +893,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	pi.on(
 		"session_before_compact",
 		markMokeCompact(async (event, ctx) => {
+		seal.prefix = null;
 		const prep = event.preparation;
 		if (!prep?.messagesToSummarize?.length) return;
 		const text = serializeMessages(prep.messagesToSummarize as AnyMsg[]);

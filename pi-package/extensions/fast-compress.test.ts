@@ -3,8 +3,10 @@ import { test } from "node:test";
 import { markMokeCompact, neutralizeForeignCompactHandlers } from "./compact-guard.ts";
 import {
 	applyPrune,
+	applySealed,
 	applyShake,
 	applySnap,
+	canReuseSeal,
 	dropImages,
 	encodePngGray,
 	estimateMessages,
@@ -249,4 +251,37 @@ test("compact-guard skips foreign session_before_compact handlers", async () => 
 	assert.equal(list[1], ours);
 	assert.equal(await (list[0] as () => Promise<undefined>)(), undefined);
 	assert.equal((await (list[1] as () => Promise<{ compaction: { summary: string } }>)()).compaction.summary, "snap");
+});
+
+test("applySealed freezes prefix after first send", () => {
+	const big = "y".repeat(8 * 1024);
+	const first = [...toolPair("a", "bash", {}, big)];
+	const state = { prefix: null as AnyMsg[] | null };
+	applySealed(first, state, { window: 1000, mode: "shake", vision: false });
+	const frozen = textJoin(first[1]);
+	assert.ok(frozen.startsWith("[Shake"));
+
+	const second = [...toolPair("a", "bash", {}, big), { role: "user", content: "more" }];
+	applySealed(second, state, { window: 200_000, vision: false });
+	assert.equal(textJoin(second[1]), frozen);
+	assert.equal(second[2]?.role, "user");
+});
+
+test("applySealed force shake opens a new epoch", () => {
+	const big = "z".repeat(8 * 1024);
+	const first = [...toolPair("a", "bash", {}, big)];
+	const state = { prefix: null as AnyMsg[] | null };
+	applySealed(first, state, { window: 200_000, vision: false });
+	const second = [...toolPair("a", "bash", {}, big), { role: "user", content: "more" }];
+	applySealed(second, state, { window: 1000, mode: "shake", vision: false });
+	assert.ok(textJoin(second[1]).startsWith("[Shake"));
+});
+
+test("canReuseSeal rejects shorter history and new compaction", () => {
+	const prefix: AnyMsg[] = [{ role: "user", content: "a" }, { role: "assistant", content: "b" }];
+	assert.equal(canReuseSeal(prefix, [{ role: "user", content: "a" }]), false);
+	assert.equal(
+		canReuseSeal([{ role: "compactionSummary", summary: "old" }], [{ role: "compactionSummary", summary: "new" }, { role: "user", content: "x" }]),
+		false,
+	);
 });

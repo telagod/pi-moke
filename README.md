@@ -30,8 +30,8 @@
 | --- | --- |
 | 🧙 **人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
 | 🛠 **四把活** | `blade-autopilot` 工程开干 · `blade-data-forge` 洗数对账 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
-| 🗜 **墨客快压** | prune → shake → snap。`/compact` 走 8×13+CJK 密图，不调模型。无视觉则只留摘录。 |
-| 🎯 **Goal** | 自动续跑默认 **不设限**。旧默认 25 / 250 装时摘掉；客自定数不动。 |
+| 🗜 **墨客快压** | prune → shake → snap。已送前缀不改（sealed）；硬线 /compact 才开新世纪。 |
+| 🎯 **Goal** | 自动续跑 **不设限**。工具开场即挂，免得中途拆 cache。 |
 | 🧠 **记忆审查** | hermes 只看近 16 条，thinking 关，避免 120s×2 超时。 |
 | 🎨 **界面** | dark 主题 · thinking `max` · 自动压缩预留窗 |
 | ⚡ **启动** | 有 bun 用 bun，无则 node；`--max-old-space-size=512`；验证失败自动回退 |

@@ -283,6 +283,9 @@ merged.continuationLimits = {
   ...(existing.continuationLimits || {}),
   automaticTurns,
 };
+if (existing.toolVisibility === 'after-first-goal') {
+  merged.toolVisibility = tpl.toolVisibility || 'always';
+}
 fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2) + '\n');
 NODE
     say "已合并 $GOAL_CFG"

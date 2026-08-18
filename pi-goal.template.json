@@ -1,5 +1,5 @@
 {
-  "toolVisibility": "after-first-goal",
+  "toolVisibility": "always",
   "experimental": {
     "goals": false
   },

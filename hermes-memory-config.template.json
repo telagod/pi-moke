@@ -1,4 +1,5 @@
 {
+  "memoryMode": "policy-only",
   "reviewEnabled": true,
   "reviewTransport": "direct",
   "reviewRecentMessages": 16,
