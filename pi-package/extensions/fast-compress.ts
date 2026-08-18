@@ -12,7 +12,6 @@ import { markMokeCompact } from "./compact-guard.ts";
 import * as snapfont from "./snapfont.ts";
 
 export const HARD_PERCENT = 85;
-export const NUDGE_PERCENT = 70;
 export const MIN_SNAP_TOKENS = 3000;
 export const SNAP_HEAD_LINES = 16;
 export const SNAP_TAIL_LINES = 8;
@@ -93,18 +92,47 @@ export function snapExcerpt(text: string): string {
 	return clampUtf8(body, SNAP_EXCERPT_MAX);
 }
 
+export type InventoryItem = {
+	tool: string;
+	tokens: number;
+	age: number;
+	shaped: boolean;
+};
+
+export function inventory(messages: AnyMsg[], top = 8): InventoryItem[] {
+	const items: InventoryItem[] = [];
+	for (let i = 0; i < messages.length; i++) {
+		const m = messages[i];
+		if (m.role !== "toolResult") continue;
+		const t = textOf(m);
+		const tokens = estTokensUtf8(t) + 16;
+		if (tokens < 80) continue;
+		items.push({
+			tool: String(m.toolName ?? "?"),
+			tokens,
+			age: messages.length - 1 - i,
+			shaped: isPlaceholder(t),
+		});
+	}
+	items.sort((a, b) => b.tokens - a.tokens);
+	return items.slice(0, top);
+}
+
+export function formatInventory(items: InventoryItem[]): string {
+	if (items.length === 0) return "无大块";
+	return items
+		.map((it) => `  ${it.tool} ${it.tokens}tok age=${it.age}${it.shaped ? " shaped" : " raw"}`)
+		.join("\n");
+}
+
 export function formatStatus(messages: AnyMsg[], window: number, vision: boolean): string {
 	const used = estimateMessages(messages);
 	const pct = window > 0 ? Math.floor((used * 100) / window) : 0;
 	const next = window > 0 && used > (window * HARD_PERCENT) / 100 ? "compact" : "idle";
-	let nSnap = 0;
-	let nImg = 0;
-	for (const m of messages) {
-		const t = textOf(m);
-		if (t.startsWith("[Snapcompact")) nSnap += 1;
-		if (Array.isArray(m.content) && (m.content as Array<{ type?: string }>).some((b) => b?.type === "image")) nImg += 1;
-	}
-	return `快压 ${used}/${window} (${pct}%) next=${next} vision=${vision ? "yes" : "no"} snap=${nSnap} images=${nImg}`;
+	const items = inventory(messages);
+	const rawTok = items.filter((it) => !it.shaped).reduce((n, it) => n + it.tokens, 0);
+	const head = `快压 ${used}/${window} (${pct}%) next=${next} vision=${vision ? "yes" : "no"} raw≈${rawTok}`;
+	return `${head}\n${formatInventory(items)}`;
 }
 
 export function isPlaceholder(s: string): boolean {
@@ -146,7 +174,7 @@ export function setText(m: AnyMsg, s: string): void {
 }
 
 export function usageFooter(percent: number | null | undefined, tokens?: number | null, window?: number): string {
-	if (percent == null || percent < NUDGE_PERCENT) return "";
+	if (percent == null) return "";
 	const pct = Math.floor(percent);
 	const span = tokens != null && window ? ` ${tokens}/${window}` : "";
 	if (percent >= HARD_PERCENT) return `\n\n[ctx ${pct}%${span} → context({op:"compact"})]`;
@@ -507,9 +535,12 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	if (Type) pi.registerTool({
 		name: "context",
 		label: "Context",
-		description: "看窗或折页。过七成见脚注；将满则 context({op:\"compact\"})。勿空喊上下文满了。",
-		promptSnippet: "status 看窗；compact 机械折页（密图，不调模型）",
-		promptGuidelines: ["窗将满时用 context({op:\"compact\"}) 折页，不要空喊上下文满了。"],
+		description: "看窗与大块清单，或折页。换题、大读前先 status：raw 是未定形的旧结果。接下来用不到则 compact。勿等七成，勿空喊。",
+		promptSnippet: "status 看窗与大块；compact 机械折页（密图，不调模型）",
+		promptGuidelines: [
+			"换题或大读前用 context({op:\"status\"}) 看 raw 大块，接下来用不到就 context({op:\"compact\"})。",
+			"不要等窗口七成，也不要空喊上下文满了。",
+		],
 		parameters: Type.Object({
 			op: Type.Unsafe({ type: "string", enum: ["status", "compact"], description: "status 看窗；compact 折页" }),
 		}),

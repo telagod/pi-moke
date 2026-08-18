@@ -4,6 +4,6 @@
 
 两步：
 - 入境：大 tool 结果进门即定形。有视觉打 8×13+CJK 密图并留首尾摘录；无视觉只留摘录。此后不回头改旧条。
-- 折页：`/compact` 与官方阈值一律走密图卡。将满则调 `context({op:"compact"})`。`/fast-compress` 看状态。
+- 折页：`/compact` 与官方阈值一律走密图卡。`context({op:"status"})` 看窗与大块（raw=未定形旧结果）；接下来用不到则 `context({op:"compact"})`。
 
-勿空喊「上下文满了」。勿 `/shake` `/snap`——已废。
+勿等七成。换题、大读前先 status。勿空喊「上下文满了」。勿 `/shake` `/snap`——已废。

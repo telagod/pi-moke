@@ -9,6 +9,7 @@ import {
 	estimateMessages,
 	estTokensUtf8,
 	formatStatus,
+	inventory,
 	isPlaceholder,
 	loadTypebox,
 	MIN_SNAP_TOKENS,
@@ -141,6 +142,24 @@ test("formatStatus reports compact-or-idle", () => {
 	assert.ok(formatStatus(fat, 1000, true).includes("next=compact"));
 });
 
+test("inventory lists large raw tool results by size", () => {
+	const msgs: AnyMsg[] = [
+		{ role: "user", content: "q" },
+		toolResult("a", "bash", "x".repeat(400)),
+		toolResult("b", "read", `[Snapcompact: already]\n${"k".repeat(400)}`),
+		toolResult("c", "grep", "y".repeat(1200)),
+	];
+	const items = inventory(msgs);
+	assert.ok(items.length >= 2);
+	assert.equal(items[0].tool, "grep");
+	assert.equal(items[0].shaped, false);
+	const shaped = items.find((it) => it.tool === "read");
+	assert.ok(shaped?.shaped);
+	const status = formatStatus(msgs, 10000, true);
+	assert.ok(status.includes("raw≈"));
+	assert.ok(status.includes("grep"));
+});
+
 test("snapExcerpt keeps head and tail", () => {
 	const lines = Array.from({ length: 40 }, (_, i) => `L${i}`);
 	const ex = snapExcerpt(lines.join("\n"));
@@ -156,9 +175,9 @@ test("placeholder detector", () => {
 	assert.equal(isPlaceholder("real tool output"), false);
 });
 
-test("usageFooter stays quiet under 70 and nudges compact at 85", () => {
-	assert.equal(usageFooter(69), "");
-	assert.ok(usageFooter(72, 72000, 100000).includes("[ctx 72%"));
+test("usageFooter always shows gauge and nudges compact at 85", () => {
+	assert.equal(usageFooter(null), "");
+	assert.ok(usageFooter(12, 12000, 100000).includes("[ctx 12% 12000/100000]"));
 	assert.ok(!usageFooter(72).includes("compact"));
 	assert.ok(usageFooter(86).includes('context({op:"compact"})'));
 });
