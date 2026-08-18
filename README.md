@@ -31,7 +31,7 @@
 | 🧙 **人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
 | 🛠 **四把活** | `blade-autopilot` 工程开干 · `blade-data-forge` 洗数对账 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
 | 🗜 **墨客快压** | prune → shake → snap。`/compact` 走 8×13+CJK 密图，不调模型。无视觉则只留摘录。 |
-| 🎯 **Goal 帽** | 自动续跑默认 **250** 轮（原 25 太紧）。客自定更大值或 Unlimited 不动。 |
+| 🎯 **Goal** | 自动续跑默认 **不设限**。旧默认 25 / 250 装时摘掉；客自定数不动。 |
 | 🧠 **记忆审查** | hermes 只看近 16 条，thinking 关，避免 120s×2 超时。 |
 | 🎨 **界面** | dark 主题 · thinking `max` · 自动压缩预留窗 |
 | ⚡ **启动** | 有 bun 用 bun，无则 node；`--max-old-space-size=512`；验证失败自动回退 |
@@ -94,7 +94,7 @@ pi-moke/
 ├── install.sh                          # 一键安装（幂等，可管道）
 ├── AGENTS.md                           # 人格成品（模块合成，逐字节校验）
 ├── settings.template.json              # 扩展 / 主题 / 压缩骨架（无 key）
-├── pi-goal.template.json               # 自动续跑帽 250
+├── pi-goal.template.json               # 自动续跑不设限
 ├── hermes-memory-config.template.json  # 近窗审查，thinking off
 ├── sources/
 │   ├── prompts/                        # 身份 · 本色 · 快压 · 俚语 · 章程
@@ -130,7 +130,7 @@ cp ~/.pi/agent/AGENTS.md.bak-* ~/.pi/agent/AGENTS.md   # 回滚人格
 pi list                                         # 已装包
 ```
 
-Goal 帽在 `~/.pi/agent/pi-goal.json` 的 `continuationLimits.automaticTurns`。要无帽，改成 `null`。
+Goal 轮次帽在 `~/.pi/agent/pi-goal.json` 的 `continuationLimits.automaticTurns`（`null` = 不设限）。
 
 ---
 
@@ -146,7 +146,7 @@ Goal 帽在 `~/.pi/agent/pi-goal.json` 的 `continuationLimits.automaticTurns`�
 | 系统 node 太旧 | 检测 ≥ 22，不足则装 node@lts，不拿旧 node 硬跑。 |
 | Windows 装不了 | 官方要 bash。上 [WSL2](https://learn.microsoft.com/windows/wsl)。 |
 | Termux | `pkg install curl git`，或直接跑脚本走 mise。 |
-| `/goal` 停在 25/25 | 旧默认。重跑安装或手改 `automaticTurns` 为 250，再 `/reload`、`/goal resume`。 |
+| `/goal` 停在 25/25 | 旧默认。重跑安装或手改 `automaticTurns` 为 `null`，再 `/reload`、`/goal resume`。 |
 
 ---
 

@@ -258,7 +258,7 @@ NODE
   fi
 fi
 
-# ---- 3c. pi-goal 自动续跑帽: 25 太紧, 默认抬到 250 ----
+# ---- 3c. pi-goal 自动续跑: 默认不设轮次帽 (null = Unlimited) ----
 GOAL_CFG="$AGENT_DIR/pi-goal.json"
 GOAL_TPL="$REPO_DIR/pi-goal.template.json"
 if [ -f "$GOAL_TPL" ]; then
@@ -274,9 +274,10 @@ const existing = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
 const merged = { ...tpl, ...existing };
 const tplTurns = tpl.continuationLimits && tpl.continuationLimits.automaticTurns;
 const oldTurns = existing.continuationLimits && existing.continuationLimits.automaticTurns;
-const automaticTurns = oldTurns === null || (typeof oldTurns === 'number' && oldTurns > 25)
+const shipped = new Set([25, 100, 250]);
+const automaticTurns = oldTurns === null || (typeof oldTurns === 'number' && !shipped.has(oldTurns))
   ? oldTurns
-  : (tplTurns ?? 250);
+  : (Object.hasOwn(tpl.continuationLimits || {}, 'automaticTurns') ? tplTurns : null);
 merged.continuationLimits = {
   ...(tpl.continuationLimits || {}),
   ...(existing.continuationLimits || {}),
