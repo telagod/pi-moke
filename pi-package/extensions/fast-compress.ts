@@ -173,12 +173,34 @@ export function setText(m: AnyMsg, s: string): void {
 	m.content = [{ type: "text", text: s }];
 }
 
-export function usageFooter(percent: number | null | undefined, tokens?: number | null, window?: number): string {
-	if (percent == null) return "";
+export type TaskNode = "user" | "ingress" | "hard";
+
+export function countUserTurns(messages: AnyMsg[]): number {
+	return messages.reduce((n, m) => n + (m.role === "user" ? 1 : 0), 0);
+}
+
+export function taskNode(opts: {
+	percent?: number | null;
+	ingressChanged: boolean;
+	newUserTurn: boolean;
+}): TaskNode | null {
+	if (opts.percent != null && opts.percent >= HARD_PERCENT) return "hard";
+	if (opts.ingressChanged) return "ingress";
+	if (opts.newUserTurn) return "user";
+	return null;
+}
+
+export function usageFooter(
+	percent: number | null | undefined,
+	tokens?: number | null,
+	window?: number,
+	node?: TaskNode | null,
+): string {
+	if (!node || percent == null) return "";
 	const pct = Math.floor(percent);
 	const span = tokens != null && window ? ` ${tokens}/${window}` : "";
-	if (percent >= HARD_PERCENT) return `\n\n[ctx ${pct}%${span} → context({op:"compact"})]`;
-	return `\n\n[ctx ${pct}%${span}]`;
+	if (node === "hard") return `\n\n[ctx ${pct}%${span} node=hard → context({op:"compact"})]`;
+	return `\n\n[ctx ${pct}%${span} node=${node}]`;
 }
 
 function crc32(buf: Uint8Array): number {
@@ -443,6 +465,7 @@ function shapedContent(shaped: IngressShaped, footer: string): Array<{ type: str
 export default function mokeFastCompress(pi: ExtensionAPI): void {
 	let last: Report | undefined;
 	let folding = false;
+	let stampedTurn = 0;
 
 	const windowOf = (ctx: { getContextUsage: () => { contextWindow?: number } | undefined }): number =>
 		ctx.getContextUsage()?.contextWindow ?? 128 * 1024;
@@ -460,7 +483,14 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 			toolName: event.toolName,
 		});
 		const u = usageOf(ctx);
-		const foot = usageFooter(u?.percent, u?.tokens, u?.contextWindow);
+		const turn = countUserTurns(messagesFromBranch(ctx.sessionManager?.getBranch?.() ?? []));
+		const node = taskNode({
+			percent: u?.percent,
+			ingressChanged: shaped.changed,
+			newUserTurn: turn > stampedTurn,
+		});
+		if (node) stampedTurn = turn;
+		const foot = usageFooter(u?.percent, u?.tokens, u?.contextWindow, node);
 		if (!shaped.changed && !foot) return;
 		if (shaped.changed) {
 			last = {
@@ -535,7 +565,7 @@ export default function mokeFastCompress(pi: ExtensionAPI): void {
 	if (Type) pi.registerTool({
 		name: "context",
 		label: "Context",
-		description: "看窗与大块清单，或折页。换题、大读前先 status：raw 是未定形的旧结果。接下来用不到则 compact。勿等七成，勿空喊。",
+		description: "看窗与大块清单，或折页。脚注只在任务节点出现（客开口 / 入境 / 将满）。换题、大读先 status。",
 		promptSnippet: "status 看窗与大块；compact 机械折页（密图，不调模型）",
 		promptGuidelines: [
 			"换题或大读前用 context({op:\"status\"}) 看 raw 大块，接下来用不到就 context({op:\"compact\"})。",

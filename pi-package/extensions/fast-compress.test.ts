@@ -17,6 +17,7 @@ import {
 	shapeIngress,
 	snapExcerpt,
 	serializeMessages,
+	taskNode,
 	textOf,
 	usageFooter,
 	type AnyMsg,
@@ -175,11 +176,16 @@ test("placeholder detector", () => {
 	assert.equal(isPlaceholder("real tool output"), false);
 });
 
-test("usageFooter always shows gauge and nudges compact at 85", () => {
-	assert.equal(usageFooter(null), "");
-	assert.ok(usageFooter(12, 12000, 100000).includes("[ctx 12% 12000/100000]"));
-	assert.ok(!usageFooter(72).includes("compact"));
-	assert.ok(usageFooter(86).includes('context({op:"compact"})'));
+test("usageFooter only stamps task nodes", () => {
+	assert.equal(usageFooter(12, 12000, 100000), "");
+	assert.equal(usageFooter(12, 12000, 100000, null), "");
+	assert.ok(usageFooter(12, 12000, 100000, "user").includes("node=user"));
+	assert.ok(usageFooter(40, undefined, undefined, "ingress").includes("node=ingress"));
+	assert.ok(usageFooter(86, 86000, 100000, "hard").includes('context({op:"compact"})'));
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newUserTurn: false }), null);
+	assert.equal(taskNode({ percent: 12, ingressChanged: false, newUserTurn: true }), "user");
+	assert.equal(taskNode({ percent: 12, ingressChanged: true, newUserTurn: true }), "ingress");
+	assert.equal(taskNode({ percent: 86, ingressChanged: false, newUserTurn: false }), "hard");
 });
 
 test("serializeMessages prefixes roles", () => {
