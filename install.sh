@@ -258,6 +258,36 @@ NODE
   fi
 fi
 
+# ---- 3c. pi-goal 自动续跑帽: 25 太紧, 默认抬到 250 ----
+GOAL_CFG="$AGENT_DIR/pi-goal.json"
+GOAL_TPL="$REPO_DIR/pi-goal.template.json"
+if [ -f "$GOAL_TPL" ]; then
+  if [ ! -f "$GOAL_CFG" ]; then
+    cp "$GOAL_TPL" "$GOAL_CFG"
+    say "已写入 $GOAL_CFG"
+  else
+    node - "$GOAL_CFG" "$GOAL_TPL" <<'NODE'
+const fs = require('fs');
+const [cfgPath, tplPath] = process.argv.slice(2);
+const tpl = JSON.parse(fs.readFileSync(tplPath, 'utf8'));
+const existing = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+const merged = { ...tpl, ...existing };
+const tplTurns = tpl.continuationLimits && tpl.continuationLimits.automaticTurns;
+const oldTurns = existing.continuationLimits && existing.continuationLimits.automaticTurns;
+const automaticTurns = oldTurns === null || (typeof oldTurns === 'number' && oldTurns > 25)
+  ? oldTurns
+  : (tplTurns ?? 250);
+merged.continuationLimits = {
+  ...(tpl.continuationLimits || {}),
+  ...(existing.continuationLimits || {}),
+  automaticTurns,
+};
+fs.writeFileSync(cfgPath, JSON.stringify(merged, null, 2) + '\n');
+NODE
+    say "已合并 $GOAL_CFG"
+  fi
+fi
+
 # ---- 4. 安装 pi-moke 包(skills) ----
 say "安装 pi-moke 技能包 ..."
 moke_pin_package
