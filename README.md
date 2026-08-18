@@ -1,120 +1,161 @@
-# 🖋 墨客 pi-moke
+# 🖋 墨客 · pi-moke
 
-> **终端行脚墨客** —— 把一套精心调校的 [pi](https://github.com/earendil-works/pi-mono) 形态，一键装给任何人。开箱即用，自带人格、技能、扩展全家桶。
+<p align="center">
+  <strong>终端行脚墨客</strong><br/>
+  把一套调校过的 <a href="https://github.com/earendil-works/pi-mono">pi</a> 形态，一键交给任何人。
+</p>
 
-![license](https://img.shields.io/badge/license-MIT-green) ![pi](https://img.shields.io/badge/pi-%E2%89%A50.83.0-blue) ![skills](https://img.shields.io/badge/skills-4-blueviolet) ![extensions](https://img.shields.io/badge/extensions-12-orange)
+<p align="center">
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-2ea44f" />
+  <img alt="pi" src="https://img.shields.io/badge/pi-%E2%89%A50.83-0b6bcb" />
+  <img alt="version" src="https://img.shields.io/badge/pi--moke-1.4.0-6f42c1" />
+  <img alt="skills" src="https://img.shields.io/badge/skills-4-8a63d2" />
+  <img alt="extensions" src="https://img.shields.io/badge/extensions-12%20%2B%20快压-d97706" />
+</p>
 
-墨客是一位游走于代码江湖的技术雇佣：逆向、取证、攻防、工程、数据、自动化，凡有所托皆可承接。**话少、手快、事毕交差**——这套配置把 pi 打磨成了这样一位行脚墨客。
+```
+客：在吗
+墨：墨客在此，客有何差遣？
+```
 
-## ✨ 特性
+游走代码江湖，以字换钱。早岁应试 CTF，后做技术雇佣——逆向、取证、攻防、工程、数据、自动化，凡有所托皆可承接。
 
-| | 内容 |
+**话少。手快。事毕交差。** 盘缠是 token，能一句不写两句。
+
+---
+
+## 开箱即得
+
+| | |
 | --- | --- |
-| 🧙 **完整人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。`./install.sh --sync` 四面一次对账 |
-| 🛠 **实战技能** | `blade-autopilot` 自主执行 · `blade-data-forge` 数据工程 · `blade-research-forge` 决策级研究 · `ctf-autopwn` CTF 全自动解题 |
-| 📦 **精选扩展** | 12 个 npm 包 + 本家快压：pi-subagents、pi-hermes-memory、pi-goal / pi-plan-mode、pi-web-access、pi-safe-compact… |
-| 🗜 **墨客快压** | prune → shake → snap，无 LLM。`/shake` `/snap` `/fast-compress`。同 path 再 read 立刻 supersede；汉字不赌 OCR |
-| 🎨 **界面调校** | dark 主题、max 思考、自动压缩、预留 token 分窗 |
-| ⚡ **启动优化** | 自动给 pi 加内存参数（`--max-old-space-size=512`）并优先用 **bun 启动**（无 bun 则 node），验证失败自动回退 |
-| 🖥 **多平台** | Linux / macOS / WSL2 / Termux 同一条安装路径，依赖由脚本统一安装，无需手工 brew / apt / pkg |
-| 🔒 **零密钥** | 不打包任何 API key / auth.json / 自定义 provider。模型由使用者自配 |
-| 🔁 **幂等可逆** | 重跑即升级；旧 AGENTS.md 自动备份，一键还原 |
+| 🧙 **人格** | 短章程：身份、本色、快压、异步、改文件纪律。技术轨指路 skill，不复述教材。 |
+| 🛠 **四把活** | `blade-autopilot` 工程开干 · `blade-data-forge` 洗数对账 · `blade-research-forge` 现源调研 · `ctf-autopwn` 拿 flag |
+| 🗜 **墨客快压** | prune → shake → snap。`/compact` 走 8×13+CJK 密图，不调模型。无视觉则只留摘录。 |
+| 🎯 **Goal 帽** | 自动续跑默认 **250** 轮（原 25 太紧）。客自定更大值或 Unlimited 不动。 |
+| 🧠 **记忆审查** | hermes 只看近 16 条，thinking 关，避免 120s×2 超时。 |
+| 🎨 **界面** | dark 主题 · thinking `max` · 自动压缩预留窗 |
+| ⚡ **启动** | 有 bun 用 bun，无则 node；`--max-old-space-size=512`；验证失败自动回退 |
+| 🔒 **零密钥** | 不打包 API key / auth.json / 自定义 provider。模型客自配。 |
+| 🖥 **多平台** | Linux / macOS / WSL2 / Termux 一条安装路 |
+| 🔁 **幂等可逆** | 重跑即升级；旧 `AGENTS.md` 自动备份 |
 
-## 🚀 快速开始
+---
 
-**方式一 · git clone（推荐，便于升级）**
+## 装
+
+**git clone（推荐，便于升级）**
 
 ```bash
 git clone https://github.com/telagod/pi-moke && cd pi-moke && ./install.sh
 ```
 
-**方式二 · 远程直装（无需 clone）**
+**远程直装**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/telagod/pi-moke/main/install.sh | bash
 ```
 
-脚本自动完成：装依赖（如缺）→ 装 pi（如缺）→ **启动优化**（有 bun 则用 bun 启动 + 内存参数，无 bun 用 node，验证失败自动回退）→ 备份并写入人格 → 合并 settings（扩展/主题/压缩）→ 安装技能包。**全程不触碰你的 provider 与 API key。**
+脚本依次：补依赖 → 装 pi → 启动优化 → 写入人格 → 合并 settings → 落盘 goal / hermes 配置 → 安装技能包。
 
-> 已有 pi 且想换 bun 启动：`./install.sh --bun`（换完立即自检，失败自动回退 node）。
+**不碰你的 provider 与 API key。**
 
-## 🖥 平台支持
+| 旗 | 作用 |
+| --- | --- |
+| `./install.sh --bun` | 强制 bun 启动；自检失败回退 node |
+| `./install.sh --sync` | 合成人格、落盘 `~/.pi/agent`、重钉本家包 |
+| `./install.sh --doctor` | 验激活句、快压、包路径、死路由 |
 
-| 平台 | 支持 | 说明 |
+### 装完三步
+
+1. **配模型** — `pi config`，或 `export ANTHROPIC_API_KEY=...`
+2. **验证** — 键入 `在吗`，当得 **「墨客在此，客有何差遣？」**
+3. **开干** — 「帮我逆这个样本」「修这个测试」「拿 flag」
+
+---
+
+## 平台
+
+| 平台 | | 说明 |
 | --- | --- | --- |
-| Linux | ✅ 全自动 | 唯一要求：`curl`；node 缺失或低于 22 时脚本自动安装 |
-| macOS | ✅ 全自动 | 同上，无需 brew；`sed`/`readlink` 差异已在脚本内兼容 |
-| WSL2 | ✅ 全自动 | 与 Linux 一致，Windows 下推荐路径 |
-| Termux (Android) | ✅ 全自动 | `pkg install curl git` 后直接跑 |
-| Windows 原生 | ⚠️ 半自动 | 需 bash 环境（pi 官方要求）；建议直接用 WSL2，Git Bash 亦可但个别环节需手动 |
+| Linux | ✅ | 只需 `curl`；node 缺失或 &lt; 22 时自动装 |
+| macOS | ✅ | 无需 brew；`sed` / `readlink` 已兼容 |
+| WSL2 | ✅ | Windows 推荐路径 |
+| Termux | ✅ | `pkg install curl git` 后直跑 |
+| Windows 原生 | ⚠️ | 需 bash；建议 WSL2 |
 
-**统一依赖安装**：node ≥ 22 由脚本内置的 [mise](https://mise.run)（`curl -fsSL https://mise.run | sh`）安装，Linux / macOS / WSL2 / Termux 同一条路，无需记忆各平台包管理器命令。装完**重开终端**以生效 mise 的 shell 钩子。
+node ≥ 22 走 [mise](https://mise.run)。装完**重开终端**，让 shell 钩子生效。
 
-### 安装后三步
+---
 
-1. **配模型**：`pi config` 设置 provider 与 key（或 `export ANTHROPIC_API_KEY=...` 等环境变量）；
-2. **验证**：在 pi 里键入 `在吗` → 当得 **「墨客在此，客有何差遣？」**；
-3. **开干**：直接差遣即可，如「帮我逆这个样本」「写个爬虫」。
-
-## 📁 目录结构
+## 目录
 
 ```text
 pi-moke/
-├── install.sh                  # 一键安装（幂等，支持 curl 管道）
-├── AGENTS.md                   # 墨客人格（合成成品，逐字节校验）
+├── install.sh                          # 一键安装（幂等，可管道）
+├── AGENTS.md                           # 人格成品（模块合成，逐字节校验）
+├── settings.template.json              # 扩展 / 主题 / 压缩骨架（无 key）
+├── pi-goal.template.json               # 自动续跑帽 250
+├── hermes-memory-config.template.json  # 近窗审查，thinking off
 ├── sources/
-│   ├── prompts/                # 人格模块源：身份 · 本色 · 快压 · 俚语 · 章程
-│   └── build.sh                # 模块 → AGENTS.md 合成器
-├── pi-package/                 # 官方 pi 包（可独立 npm publish）
-│   ├── package.json            #   pi.skills + pi.extensions 清单
-│   ├── extensions/             #   墨客快压（prune / shake / snap）
-│   └── skills/                 #   blade-autopilot / blade-data-forge
-│                               #   blade-research-forge / ctf-autopwn
-└── settings.template.json      # 扩展 / 主题 / 压缩骨架（无 key）
+│   ├── prompts/                        # 身份 · 本色 · 快压 · 俚语 · 章程
+│   └── build.sh                        # 模块 → AGENTS.md
+└── pi-package/                         # 可独立 npm publish
+    ├── extensions/                     # compact-guard + 快压（prune / shake / snap）
+    └── skills/                         # 四把活
 ```
 
-## 🛠 定制
+---
+
+## 改
 
 ```bash
-# 改人格：编辑模块 → 一键同步本地
+# 改人格：动模块 → 一次对账
 $EDITOR sources/prompts/10-persona.md
-./install.sh --sync                     # 合成 + 落盘 ~/.pi/agent + 绝对路径装包
-./install.sh --doctor                   # 验激活句、快压、包路径、seagull 残留
+./install.sh --sync
+./install.sh --doctor
 
 # 加技能
-mkdir -p pi-package/skills/my-skill && $EDITOR pi-package/skills/my-skill/SKILL.md
+mkdir -p pi-package/skills/my-skill
+$EDITOR pi-package/skills/my-skill/SKILL.md
 ./install.sh
 
 # 改扩展清单
-$EDITOR settings.template.json          # 编辑 packages 数组
+$EDITOR settings.template.json
 ./install.sh
 ```
 
-## 🔄 更新与回滚
-
 ```bash
-git pull && ./install.sh --sync # 更新人格与本家包（不重装 node）
-cp ~/.pi/agent/AGENTS.md.bak-* ~/.pi/agent/AGENTS.md   # 回滚旧人格
-pi list                         # 查看已装包；pi remove <路径> 可移除技能包
+git pull && ./install.sh --sync                 # 更新人格与本家包
+cp ~/.pi/agent/AGENTS.md.bak-* ~/.pi/agent/AGENTS.md   # 回滚人格
+pi list                                         # 已装包
 ```
 
-## ❓ FAQ
+Goal 帽在 `~/.pi/agent/pi-goal.json` 的 `continuationLimits.automaticTurns`。要无帽，改成 `null`。
 
-| 问题 | 回答 |
+---
+
+## 问
+
+| | |
 | --- | --- |
-| 报错 `No API key found for the selected model` | 正常——本包不带任何密钥。`pi config` 配好 provider 即可 |
-| 会覆盖我已有的 AGENTS.md 吗 | 不会丢：自动备份为 `AGENTS.md.bak-<时间戳>` |
-| 我的 settings.json 会被改坏吗 | 只做合并：补缺键、扩展包去重，**provider/model/key 一律不动** |
-| 重装后本地包路径会不会失效 | `pi install` 本地路径机制所致；仓库固定位置即可，移动后重跑 `./install.sh` |
-| 我 fork 了仓库，管道安装怎么用 | `MOKE_REPO=https://github.com/你/pi-moke curl -fsSL <你的raw>/install.sh \| bash` |
-| 系统已有 node 但很旧 | 脚本检测版本（需 ≥22），不足则自动装 node@lts，不会拿旧 node 硬跑 |
-| Windows 上装不了 | pi 官方要求 bash 环境；装 [WSL2](https://learn.microsoft.com/windows/wsl) 后与 Linux 体验一致 |
-| Termux 上怎么装 | `pkg install curl git && pkg install nodejs`（或直接跑脚本，会自动走 mise） |
+| `No API key found for the selected model` | 正常。本包不带密钥，`pi config` 配好即可。 |
+| 会覆盖已有 `AGENTS.md` 吗 | 先备份为 `AGENTS.md.bak-<时间戳>`。 |
+| `settings.json` 会被改坏吗 | 只合并：补缺键、扩展去重。provider / model / key 不动。 |
+| 重装后本地包路径失效 | `pi install` 写相对路径所致。仓库别挪；挪了重跑 `./install.sh`。 |
+| fork 后管道怎么装 | `MOKE_REPO=https://github.com/你/pi-moke curl -fsSL <你的 raw>/install.sh \| bash` |
+| 系统 node 太旧 | 检测 ≥ 22，不足则装 node@lts，不拿旧 node 硬跑。 |
+| Windows 装不了 | 官方要 bash。上 [WSL2](https://learn.microsoft.com/windows/wsl)。 |
+| Termux | `pkg install curl git`，或直接跑脚本走 mise。 |
+| `/goal` 停在 25/25 | 旧默认。重跑安装或手改 `automaticTurns` 为 250，再 `/reload`、`/goal resume`。 |
 
-## ⚠️ 安全须知
+---
 
-pi 扩展与技能可执行任意代码。本包不含任何密钥，但**安装前请自行审阅第三方扩展源码**（清单见 `settings.template.json`）。审阅可参考 pi 官方安全说明：[packages.md](https://github.com/earendil-works/pi-mono/blob/main/docs/packages.md#security)。
+## 安全
 
-## 📄 许可
+扩展与技能可执行任意代码。本包不含密钥，**安装前请自行审阅第三方扩展**（清单见 `settings.template.json`）。
 
-MIT © telagod
+官方说明：[packages.md](https://github.com/earendil-works/pi-mono/blob/main/docs/packages.md#security)
+
+---
+
+<p align="center">MIT © telagod</p>
