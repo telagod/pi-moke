@@ -1,6 +1,7 @@
 /**
- * 挡 pi-safe-compact 等外挂在 session_before_compact 里先跑 LLM。
- * 须比那些扩展更早加载（本文件列在 pi.extensions 之首，且包须排在 pi-safe-compact 前）。
+ * Pi 没有 DSH 那种 `engine.summarize` 可包一层。
+ * 外挂若先注册 session_before_compact 会抢跑 LLM。
+ * 本文件须列在 pi.extensions 之首，且包须排在 pi-safe-compact 前。
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 

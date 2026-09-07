@@ -5,17 +5,20 @@ import {
 	applyIngress,
 	attachSnapFrames,
 	buildCompactPayload,
+	buildFold,
 	canCompactNow,
 	compactHint,
 	encodePngGray,
 	estimateMessages,
 	estTokensUtf8,
 	formatStatus,
+	inspectMessages,
 	inventory,
 	isPlaceholder,
 	loadTypebox,
 	MIN_SNAP_TOKENS,
 	modelHasVision,
+	resolveVisionRoute,
 	shapeIngress,
 	snapExcerpt,
 	serializeMessages,
@@ -170,6 +173,7 @@ test("snapExcerpt keeps head and tail", () => {
 	assert.ok(ex.includes("L0"));
 	assert.ok(ex.includes("L39"));
 	assert.ok(ex.includes("elided"));
+	assert.ok(ex.includes("re-read with offset/limit"));
 	assert.ok(!ex.includes("L20"));
 });
 
@@ -221,11 +225,73 @@ test("buildCompactPayload rasters and labels snapcompact", () => {
 		model: "gpt-4o",
 	});
 	assert.ok(payload.summary.startsWith("[Snapcompact]"));
+	assert.ok(payload.summary.includes("Fold ~9000 tok"));
 	assert.ok(payload.summary.includes("FILES"));
 	assert.ok(payload.summary.includes("src/a.zig"));
+	assert.ok(payload.summary.includes("re-read with offset/limit"));
 	assert.equal(payload.details.kind, "moke-snap");
 	assert.ok(payload.details.frames.length >= 1);
 	assert.ok(payload.details.frames[0].data.length > 80);
+});
+
+test("fold card keeps files/intents and drops prior checkpoints", () => {
+	const ledger = buildFold([
+		{ role: "user", content: "This is an automatically generated checkpoint\n\n<compacted-summary>\nOld atlas\n</compacted-summary>" },
+		{ role: "user", content: "Keep going with the plugin" },
+		{
+			role: "assistant",
+			content: "I will inspect the repo.",
+			toolCalls: [
+				{ id: "c1", name: "read", arguments: { file_path: "lib/index.js" } },
+				{ id: "c2", name: "bash", arguments: { command: "ls -la" } },
+			],
+		},
+		toolResult("c1", "read", "     1| export function apply() {}"),
+		toolResult("c2", "bash", "file-a\nfile-b\n[exit code: 0]"),
+	]);
+	assert.ok(ledger.includes("[Snapcompact]"));
+	assert.ok(ledger.includes("Keep going with the plugin"));
+	assert.equal(ledger.includes("Old atlas"), false);
+	assert.ok(ledger.includes("lib/index.js"));
+	assert.ok(ledger.includes("ls -la"));
+	assert.equal(ledger.includes("export function apply()"), false);
+});
+
+test("inspectMessages records grep/edit paths and failed commands", () => {
+	const snapshot = inspectMessages([
+		{ role: "user", content: "fix it" },
+		{
+			role: "assistant",
+			content: "",
+			toolCalls: [
+				{ id: "c3", name: "edit", arguments: { file_path: "lib/index.js" } },
+				{ id: "c4", name: "grep", arguments: { path: "lib", pattern: "apply" } },
+			],
+		},
+		{ ...toolResult("c3", "edit", "SyntaxError: unexpected token\n[exit code: 1]"), isError: true },
+		toolResult("c4", "grep", "lib/index.js:1"),
+	]);
+	assert.equal(snapshot.edits.includes("lib/index.js"), true);
+	assert.equal(snapshot.reads.includes("lib"), true);
+	assert.equal(snapshot.errors.length, 1);
+	assert.deepEqual(snapshot.tools.map((item) => item.name).sort(), ["edit", "grep"]);
+});
+
+test("ingress vision prefers advertised modalities over name heuristics", () => {
+	assert.equal(resolveVisionRoute({ model: "grok-4.6", snapImages: true }).ingressVision, true);
+	assert.equal(
+		resolveVisionRoute({ model: "claude-sonnet-4", inputModalities: ["text"], snapImages: true }).ingressVision,
+		false,
+	);
+	assert.equal(
+		resolveVisionRoute({ model: "custom-model", inputModalities: ["text", "image"], snapImages: true }).ingressVision,
+		true,
+	);
+	assert.equal(
+		resolveVisionRoute({ model: "custom-model", inputModalities: ["text", "image"], snapImages: false }).ingressVision,
+		false,
+	);
+	assert.equal(resolveVisionRoute({ model: "deepseek-chat" }).ingressVision, false);
 });
 
 test("attachSnapFrames injects after compactionSummary", () => {
